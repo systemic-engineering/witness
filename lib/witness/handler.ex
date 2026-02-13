@@ -65,12 +65,34 @@ defmodule Witness.Handler do
 
         attach(handler_id, {handler, config}, events)
 
-      {:error, _} = error ->
+      {:error, {:unknown_app, app}} = error ->
+        Logger.error("""
+        Unknown OTP application: #{inspect(app)}
+
+        The application is not loaded or does not exist. This usually means:
+        1. The application name is misspelled in your Witness context
+        2. The application hasn't been started yet
+        3. The application doesn't exist in your project
+
+        To fix:
+        - Check the :app option in your Witness context configuration
+        - Ensure the application is started: Application.ensure_all_started(#{inspect(app)})
+        - Verify the application exists in mix.exs dependencies
+        """,
+          handler_id: handler_id,
+          handler: handler,
+          context: context,
+          app: app
+        )
+
+        error
+
+      {:error, reason} = error ->
         Logger.error("Did not attach handler as loading the context's sources failed.",
           handler_id: handler_id,
           handler: handler,
           context: context,
-          error: error
+          error: reason
         )
 
         error

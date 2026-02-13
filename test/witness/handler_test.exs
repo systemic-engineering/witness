@@ -128,7 +128,7 @@ defmodule Witness.HandlerTest do
       :telemetry.detach(handler_id)
     end
 
-    test "returns error when sources_in fails" do
+    test "returns error when sources_in fails with clear error message" do
       handler_id = make_ref()
 
       log =
@@ -141,8 +141,11 @@ defmodule Witness.HandlerTest do
 
       assert log =~ "Will attach handler to all events in context."
 
-      assert log =~
-               "Did not attach handler as loading the context's sources failed."
+      # Better error reporting - explains what's wrong and how to fix it
+      assert log =~ "Unknown OTP application"
+      assert log =~ ":nonexistent_app_12345"
+      assert log =~ "not loaded or does not exist"
+      assert log =~ "Application.ensure_all_started"
     end
   end
 
