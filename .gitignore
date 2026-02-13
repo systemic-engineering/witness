@@ -21,3 +21,7 @@ witness-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Nix environment directories
+/.nix-mix/
+/.nix-hex/
