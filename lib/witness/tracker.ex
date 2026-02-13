@@ -180,11 +180,16 @@ defmodule Witness.Tracker do
   @doc "The actual `track_event/4` logic. #{makes_source_doc}"
   @spec _track_event(context, Witness.event_name(), Witness.attributes(), Witness.meta()) :: :ok
   def _track_event(context, [_ | _] = event_name, attributes, meta) when Witness.is_context(context) do
-    :telemetry.execute(
-      Witness.config(context, :prefix) ++ event_name,
-      Utils.as_map(attributes),
-      Utils.enrich_meta(meta, context: context, ref: make_ref())
-    )
+    # Skip telemetry if context is inactive
+    if Witness.config(context, :active) do
+      :telemetry.execute(
+        Witness.config(context, :prefix) ++ event_name,
+        Utils.as_map(attributes),
+        Utils.enrich_meta(meta, context: context, ref: make_ref())
+      )
+    else
+      :ok
+    end
   end
 
   @doc "The actual `with_span/4` logic. #{makes_source_doc}"
@@ -196,6 +201,17 @@ defmodule Witness.Tracker do
 
   def _with_span(context, [_ | _] = event_name, meta, span_function)
       when Witness.is_context(context) and is_function(span_function, 1) do
+    # Check if context is active - if not, just execute the function without telemetry
+    if not Witness.config(context, :active) do
+      %Span{id: ref} = span = Span.new(context, event_name, meta: meta)
+      %Span{result: result} = span_function.(span)
+      result
+    else
+      do_with_span(context, event_name, meta, span_function)
+    end
+  end
+
+  defp do_with_span(context, event_name, meta, span_function) do
     %Span{id: ref} = span = Span.new(context, event_name, meta: meta)
 
     # Register span in ETS for cross-process tracking
