@@ -121,8 +121,6 @@ defmodule Witness do
 
   alias __MODULE__.Source
 
-  @defaults config_defaults
-
   defmacro __using__(config) do
     if not Keyword.keyword?(config) do
       raise ArgumentError, "expected config to be a keyword list but got: #{Macro.to_string(config)}"

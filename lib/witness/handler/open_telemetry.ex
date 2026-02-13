@@ -2,12 +2,11 @@ defmodule Witness.Handler.OpenTelemetry do
   @moduledoc false
   @behaviour Witness.Handler
 
-  alias Witness.Utils
   alias OpenTelemetry, as: Otel
   alias OpentelemetryTelemetry, as: OtelTranslator
+  alias Witness.Utils
 
   require Logger
-  require OpenTelemetry.SemanticConventions.Trace
 
   @tracer_id __MODULE__
   @telemetry_meta_keys [:telemetry_span_context]
