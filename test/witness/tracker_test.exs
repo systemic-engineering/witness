@@ -11,6 +11,15 @@ defmodule Witness.TrackerTest do
       prefix: [:test, :tracker]
   end
 
+  defmodule DirectMacroUser do
+    require Witness.Tracker, as: Tracker
+    alias Witness.TrackerTest.TestContext
+
+    def use_track_event_macro do
+      Tracker.track_event(TestContext, [:direct, :macro, :event], %{data: "test"})
+    end
+  end
+
   setup do
     start_supervised!(TestContext)
     :ok
@@ -130,6 +139,14 @@ defmodule Witness.TrackerTest do
         end)
 
       assert result == :my_result
+    end
+  end
+
+  describe "track_event/4 macro" do
+    test "generates code to track event when called directly" do
+      # This test exercises the macro path directly (line 86 in tracker.ex)
+      # The DirectMacroUser module was compiled with a direct call to the macro
+      assert DirectMacroUser.use_track_event_macro() == :ok
     end
   end
 end

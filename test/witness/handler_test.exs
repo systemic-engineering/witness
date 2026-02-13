@@ -52,6 +52,31 @@ defmodule Witness.HandlerTest do
     end
   end
 
+  defmodule ContextWithSources do
+    use Witness,
+      app: :witness,
+      prefix: [:test, :with_sources],
+      sources: [__MODULE__.MockSource]
+  end
+
+  defmodule ContextWithSources.MockSource do
+    @behaviour Witness.Source
+
+    @impl true
+    def __observable__() do
+      %{
+        context: Witness.HandlerTest.ContextWithSources,
+        events: [[:test, :with_sources, :event, :one], [:test, :with_sources, :event, :two]]
+      }
+    end
+  end
+
+  defmodule ContextWithInvalidApp do
+    use Witness,
+      app: :nonexistent_app_12345,
+      prefix: [:test, :invalid]
+  end
+
   setup do
     start_supervised!(TestContext)
     :ok
@@ -84,6 +109,41 @@ defmodule Witness.HandlerTest do
       assert log =~ "Did not attach handler as the given context has no sources."
     end
 
+    test "attaches handler when context has sources" do
+      handler_id = make_ref()
+
+      log =
+        capture_log([metadata: [:number_of_events]], fn ->
+          result =
+            Handler.attach_to_context(handler_id, {TestHandler, :config}, ContextWithSources)
+
+          assert result == :ok
+        end)
+
+      assert log =~ "Will attach handler to all events in context."
+      assert log =~ "Did attach handler to events."
+      assert log =~ "number_of_events=2"
+
+      # Cleanup
+      :telemetry.detach(handler_id)
+    end
+
+    test "returns error when sources_in fails" do
+      handler_id = make_ref()
+
+      log =
+        capture_log(fn ->
+          result =
+            Handler.attach_to_context(handler_id, {TestHandler, :config}, ContextWithInvalidApp)
+
+          assert {:error, {:unknown_app, :nonexistent_app_12345}} = result
+        end)
+
+      assert log =~ "Will attach handler to all events in context."
+
+      assert log =~
+               "Did not attach handler as loading the context's sources failed."
+    end
   end
 
   describe "attach/3" do
