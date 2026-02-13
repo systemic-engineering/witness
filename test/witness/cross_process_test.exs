@@ -21,7 +21,9 @@ defmodule Witness.CrossProcessTest do
         [:test, :parent_span, :start],
         [:test, :parent_span, :stop],
         [:test, :child_span, :start],
-        [:test, :child_span, :stop]
+        [:test, :child_span, :stop],
+        [:test, :grandchild_span, :start],
+        [:test, :grandchild_span, :stop]
       ],
       fn event, measurements, metadata, _config ->
         send(test_pid, {:telemetry_event, event, measurements, metadata})
@@ -82,50 +84,28 @@ defmodule Witness.CrossProcessTest do
     test "nested cross-process spans maintain hierarchy" do
       require Witness.Tracker, as: Tracker
 
-      result =
-        Tracker.with_span TestContext, [:parent_span], %{} do
-          parent_span = Tracker.active_span(TestContext)
-          parent_ref = parent_span.id
-
-          task =
+      Tracker.with_span TestContext, [:parent_span], %{} do
+        Task.async(fn ->
+          Tracker.with_span TestContext, [:child_span], %{} do
+            # Nested child within child
             Task.async(fn ->
-              Tracker.with_span TestContext, [:child_span], %{} do
-                child_span = Tracker.active_span(TestContext)
-
-                # Nested child within child
-                nested_result =
-                  Task.async(fn ->
-                    try do
-                      Tracker.with_span TestContext, [:grandchild_span], %{} do
-                        :grandchild_ok
-                      end
-                    rescue
-                      e -> {:error, e, __STACKTRACE__}
-                    end
-                  end)
-                  |> Task.await()
-
-                {child_span.id, nested_result}
+              Tracker.with_span TestContext, [:grandchild_span], %{} do
+                :ok
               end
             end)
             |> Task.await()
-
-          {parent_ref, task}
-        end
-
-      # Check if grandchild had an error
-      {_parent_ref, {_child_ref, grandchild_result}} = result
-
-      if match?({:error, _, _}, grandchild_result) do
-        {_error, exception, stacktrace} = grandchild_result
-        IO.puts("Grandchild error: #{inspect(exception)}")
-        IO.puts("Stacktrace: #{inspect(stacktrace)}")
+          end
+        end)
+        |> Task.await()
       end
 
       # All spans should complete successfully
       assert_receive {:telemetry_event, [:test, :parent_span, :start], _, _}
       assert_receive {:telemetry_event, [:test, :child_span, :start], _, _}
       assert_receive {:telemetry_event, [:test, :grandchild_span, :start], _, _}
+      assert_receive {:telemetry_event, [:test, :grandchild_span, :stop], _, _}
+      assert_receive {:telemetry_event, [:test, :child_span, :stop], _, _}
+      assert_receive {:telemetry_event, [:test, :parent_span, :stop], _, _}
     end
   end
 end
