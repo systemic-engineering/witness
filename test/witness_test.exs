@@ -1,32 +1,152 @@
 defmodule WitnessTest do
   use ExUnit.Case, async: true
 
-  require Witness
+  import Witness
 
-  describe "is_context/1 guard" do
-    test "allows modules in guards" do
-      assert check_context(SomeModule)
+  doctest Witness
+
+  defmodule TestContext do
+    use Witness,
+      app: :witness,
+      prefix: [:test]
+  end
+
+
+  defmodule ContextWithSources do
+    use Witness,
+      app: :witness,
+      prefix: [:with_sources],
+      sources: [TestModule1, TestModule2]
+  end
+
+  describe "context?/1" do
+    test "returns true for valid context modules" do
+      assert Witness.context?(TestContext)
     end
 
-    test "rejects nil in guards" do
-      refute check_context(nil)
+    test "returns false for non-context modules" do
+      refute Witness.context?(Enum)
     end
 
-    test "rejects non-atoms in guards" do
-      refute check_context("string")
-      refute check_context(123)
+    test "returns false for nil" do
+      refute Witness.context?(nil)
     end
 
-    defp check_context(value) when Witness.is_context(value), do: true
-    defp check_context(_), do: false
+    test "returns false for non-modules" do
+      refute Witness.context?("string")
+      refute Witness.context?(["list"])
+    end
+
+    test "returns false for atom that's not a module" do
+      refute Witness.context?(:some_atom)
+    end
+  end
+
+  describe "config/1" do
+    test "returns config for a context" do
+      config = Witness.config(TestContext)
+
+      assert is_list(config)
+      assert config[:app] == :witness
+      assert config[:prefix] == [:test]
+    end
+  end
+
+  describe "config/2" do
+    test "returns specific config value" do
+      assert Witness.config(TestContext, :app) == :witness
+      assert Witness.config(TestContext, :prefix) == [:test]
+      assert Witness.config(TestContext, :active) == true
+    end
   end
 
   describe "defaults/1" do
-    test "returns default config" do
-      defaults = Witness.defaults(:test_app)
-      assert defaults[:app] == :test_app
+    test "returns defaults without app" do
+      defaults = Witness.defaults()
+
       assert defaults[:active] == true
-      assert is_list(defaults[:handler])
+      assert defaults[:extra_events] == []
+      assert defaults[:handler] == [Witness.Handler.OpenTelemetry]
+    end
+
+    test "returns defaults with app" do
+      defaults = Witness.defaults(:witness)
+
+      assert defaults[:app] == :witness
+      assert defaults[:active] == true
+    end
+
+    test "merges application config when present" do
+      # Set some test config
+      Application.put_env(:test_app, Witness, handler: [SomeTestHandler])
+
+      defaults = Witness.defaults(:test_app)
+
+      assert defaults[:app] == :test_app
+      assert defaults[:handler] == [SomeTestHandler]
+
+      # Cleanup
+      Application.delete_env(:test_app, Witness)
+    end
+  end
+
+  describe "sources_in/1" do
+    test "returns explicitly configured sources" do
+      {:ok, sources} = Witness.sources_in(ContextWithSources)
+
+      assert sources == [TestModule1, TestModule2]
+    end
+
+    test "resolves sources from application when not configured" do
+      {:ok, sources} = Witness.sources_in(TestContext)
+
+      # Should find sources from the witness app
+      assert is_list(sources)
+    end
+
+    test "returns error for unknown app" do
+      defmodule UnknownAppContext do
+        use Witness,
+          app: :totally_unknown_app,
+          prefix: [:unknown]
+      end
+
+      assert {:error, {:unknown_app, :totally_unknown_app}} =
+               Witness.sources_in(UnknownAppContext)
+    end
+  end
+
+  describe "__using__ macro" do
+    test "raises when config is not a keyword list" do
+      assert_raise ArgumentError, ~r/expected config to be a keyword list/, fn ->
+        defmodule InvalidConfig do
+          use Witness, "not a keyword list"
+        end
+      end
+    end
+
+    test "generates config/0 that merges app config when app is present" do
+      config = TestContext.config()
+
+      assert config[:app] == :witness
+      assert config[:prefix] == [:test]
+    end
+
+  end
+
+  describe "child_spec/1" do
+    test "generates valid child_spec" do
+      spec = TestContext.child_spec(:ignored)
+
+      assert spec.id == {Witness.Supervisor, TestContext}
+      assert spec.type == :supervisor
+    end
+  end
+
+  describe "source?/1" do
+    test "delegates to Witness.Source" do
+      # This is tested in source_test.exs, just verify delegation works
+      refute Witness.source?(NotASource)
     end
   end
 end
