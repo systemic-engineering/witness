@@ -31,34 +31,54 @@ defmodule Witness.SpanRegistry do
 
   @doc """
   Registers the current span for the calling process.
+
+  If the registry is not started (e.g., in Mix tasks or when context is inactive),
+  this is a no-op.
   """
   @spec register_span(context, span_ref) :: :ok
   def register_span(context, span_ref) do
     table = table_name(context)
-    :ets.insert(table, {self(), span_ref})
+
+    if table_exists?(table) do
+      :ets.insert(table, {self(), span_ref})
+    end
+
     :ok
   end
 
   @doc """
   Unregisters the span for the calling process.
+
+  If the registry is not started (e.g., in Mix tasks or when context is inactive),
+  this is a no-op.
   """
   @spec unregister_span(context) :: :ok
   def unregister_span(context) do
     table = table_name(context)
-    :ets.delete(table, self())
+
+    if table_exists?(table) do
+      :ets.delete(table, self())
+    end
+
     :ok
   end
 
   @doc """
   Looks up the active span for the given PID.
+
+  Returns :error if the registry is not started.
   """
   @spec lookup_span(context, pid) :: {:ok, span_ref} | :error
   def lookup_span(context, pid) do
     table = table_name(context)
 
-    case :ets.lookup(table, pid) do
-      [{^pid, span_ref}] -> {:ok, span_ref}
-      [] -> :error
+    if table_exists?(table) do
+      case :ets.lookup(table, pid) do
+        [{^pid, span_ref}] -> {:ok, span_ref}
+        [] -> :error
+      end
+    else
+      :error
     end
   end
 
@@ -100,4 +120,8 @@ defmodule Witness.SpanRegistry do
 
   defp registry_name(context), do: Module.concat(context, SpanRegistry)
   defp table_name(context), do: Module.concat(context, SpanRegistryTable)
+
+  defp table_exists?(table) do
+    :ets.whereis(table) != :undefined
+  end
 end
