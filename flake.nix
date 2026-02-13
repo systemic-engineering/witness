@@ -11,7 +11,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        elixir = pkgs.beam.packages.erlang_27.elixir_1_17;
+        elixir = pkgs.beam.packages.erlang_27.elixir_1_18;
 
         # Development dependencies
         buildInputs = with pkgs; [

@@ -2,13 +2,13 @@ defmodule Witness.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/alexwolf/witness"
+  @source_url "https://github.com/systemic-engineer/witness"
 
   def project do
     [
       app: :witness,
       version: @version,
-      elixir: "~> 1.17",
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: description(),
