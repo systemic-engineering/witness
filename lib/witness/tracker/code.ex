@@ -60,9 +60,26 @@ defmodule Witness.Tracker.Code do
         Witness.Tracker.add_span_meta(unquote(context), meta)
       end
 
-      @doc "Delegates to `Witness.Tracker.set_span_status/3` with the `#{context_name}` context."
-      @spec set_span_status(Witness.Span.status_code()) :: boolean
-      def set_span_status(status, details \\ nil) do
+      @doc """
+      Delegates to `Witness.Tracker.set_span_status/2` or `/3` with the `#{context_name}` context.
+
+      Accepts:
+      - `{:ok}` or `{:error, reason}` tuples
+      - `:ok`, `:error`, or `:unknown` atoms with optional details
+      """
+      @spec set_span_status({:ok} | {:error, any()}) :: boolean
+      @spec set_span_status(Witness.Span.status_code(), Witness.Span.status_details()) :: boolean
+      def set_span_status(status_or_tuple, details \\ nil)
+
+      def set_span_status({:ok}, _details) do
+        Witness.Tracker.set_span_status(unquote(context), {:ok})
+      end
+
+      def set_span_status({:error, reason}, _details) do
+        Witness.Tracker.set_span_status(unquote(context), {:error, reason})
+      end
+
+      def set_span_status(status, details) when status in [:ok, :error, :unknown] do
         Witness.Tracker.set_span_status(unquote(context), status, details)
       end
     end

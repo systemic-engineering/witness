@@ -159,8 +159,30 @@ defmodule Witness.Tracker do
 
   @doc "Sets the status of the active span. Returns `false` when there is no active span."
   @spec set_span_status(context, Span.status_code(), Span.status_details()) :: boolean
-  def set_span_status(context, status, details \\ nil) do
+  def set_span_status(context, status, details) when status in [:ok, :error, :unknown] do
     update_active_span(context, &Span.with_status(&1, status, details))
+  end
+
+  @doc """
+  Sets the status of the active span. Returns `false` when there is no active span.
+
+  Accepts:
+  - `{:ok}` tuple
+  - `{:error, reason}` tuple
+  - `:ok`, `:error`, or `:unknown` atom (details default to nil)
+  """
+  @spec set_span_status(context, {:ok} | {:error, any()}) :: boolean
+  @spec set_span_status(context, Span.status_code()) :: boolean
+  def set_span_status(context, {:ok}) do
+    set_span_status(context, :ok, nil)
+  end
+
+  def set_span_status(context, {:error, reason}) do
+    set_span_status(context, :error, reason)
+  end
+
+  def set_span_status(context, status) when status in [:ok, :error, :unknown] do
+    set_span_status(context, status, nil)
   end
 
   defp update_active_span(context, function) do

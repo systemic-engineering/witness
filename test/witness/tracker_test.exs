@@ -131,6 +131,35 @@ defmodule Witness.TrackerTest do
     end
   end
 
+  describe "set_span_status/2 with result tuples" do
+    test "sets ok status from {:ok} tuple" do
+      Tracker.with_span TestContext, [:test, :span], %{} do
+        result = Tracker.set_span_status(TestContext, {:ok})
+
+        assert result == true
+
+        span = Tracker.active_span(TestContext)
+        assert span.status == {:ok, nil}
+      end
+    end
+
+    test "sets error status from {:error, reason} tuple" do
+      Tracker.with_span TestContext, [:test, :span], %{} do
+        result = Tracker.set_span_status(TestContext, {:error, :timeout})
+
+        assert result == true
+
+        span = Tracker.active_span(TestContext)
+        assert span.status == {:error, :timeout}
+      end
+    end
+
+    test "returns false when no span is active" do
+      result = Tracker.set_span_status(TestContext, {:error, :no_span})
+      assert result == false
+    end
+  end
+
   describe "_with_span/4 with 0-arity function" do
     test "converts 0-arity function to 1-arity" do
       result =
