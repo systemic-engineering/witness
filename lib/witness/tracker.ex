@@ -253,8 +253,7 @@ defmodule Witness.Tracker do
         end
       )
     after
-      # Unregister span when done
-      Witness.SpanRegistry.unregister_span(context)
+      Witness.SpanRegistry.unregister_span(context, ref)
     end
   end
 end

@@ -15,6 +15,18 @@ defmodule Witness.SpanRegistryTest do
     :ok
   end
 
+  # Polls fun/0 up to ~500ms, returning the first non-nil result.
+  defp wait_for(fun, retries \\ 50) do
+    case fun.() do
+      nil when retries > 0 ->
+        Process.sleep(10)
+        wait_for(fun, retries - 1)
+
+      result ->
+        result
+    end
+  end
+
   describe "register_span/2" do
     test "stores span ref for current process" do
       span_ref = make_ref()
@@ -56,26 +68,30 @@ defmodule Witness.SpanRegistryTest do
       # Parent still has its ref
       assert {:ok, ^parent_ref} = SpanRegistry.lookup_span(TestContext, self())
 
-      # Child process is dead, but ETS entry might remain (that's ok)
-      # The important part is they were independent when alive
+      # Child process is dead; its entry becomes a tombstone until swept
     end
   end
 
-  describe "unregister_span/1" do
-    test "removes span ref for current process" do
+  describe "unregister_span/2" do
+    test "tombstones the entry so it is still findable after the span closes" do
       span_ref = make_ref()
       SpanRegistry.register_span(TestContext, span_ref)
 
-      assert :ok = SpanRegistry.unregister_span(TestContext)
+      assert :ok = SpanRegistry.unregister_span(TestContext, span_ref)
 
-      # Should be gone
-      assert :error = SpanRegistry.lookup_span(TestContext, self())
+      # Tombstone is still visible — out-of-band processors can find the ref
+      assert {:ok, ^span_ref} = SpanRegistry.lookup_span(TestContext, self())
     end
 
-    test "is idempotent when no span registered" do
-      # Should not crash
-      assert :ok = SpanRegistry.unregister_span(TestContext)
-      assert :ok = SpanRegistry.unregister_span(TestContext)
+    test "tombstone is removed by sweep" do
+      span_ref = make_ref()
+      SpanRegistry.register_span(TestContext, span_ref)
+      SpanRegistry.unregister_span(TestContext, span_ref)
+
+      # Sweep with ttl=0 removes all tombstones immediately
+      SpanRegistry.sweep(TestContext, 0)
+
+      assert :error = SpanRegistry.lookup_span(TestContext, self())
     end
   end
 
@@ -151,6 +167,62 @@ defmodule Witness.SpanRegistryTest do
     end
   end
 
+  describe "process death cleanup" do
+    test "tombstones ETS entry when process is killed mid-span" do
+      span_ref = make_ref()
+
+      pid =
+        spawn(fn ->
+          SpanRegistry.register_span(TestContext, span_ref)
+          Process.sleep(:infinity)
+        end)
+
+      # Wait until the ETS entry is visible
+      assert {:ok, ^span_ref} = wait_for(fn ->
+        case SpanRegistry.lookup_span(TestContext, pid) do
+          {:ok, _} = result -> result
+          _ -> nil
+        end
+      end)
+
+      Process.exit(pid, :kill)
+
+      # Entry becomes a tombstone — still findable for out-of-band processors
+      assert {:ok, ^span_ref} = wait_for(fn ->
+        # The :DOWN message arrives asynchronously; wait for the tombstone insert
+        case :ets.lookup(Module.concat(TestContext, SpanRegistryTable), pid) do
+          [{^pid, _, {:done, _}}] -> SpanRegistry.lookup_span(TestContext, pid)
+          _ -> nil
+        end
+      end)
+
+      # Swept away with ttl=0
+      SpanRegistry.sweep(TestContext, 0)
+      assert :error = SpanRegistry.lookup_span(TestContext, pid)
+    end
+
+    test "demonitors cleanly after normal unregister, no monitor leak" do
+      span_ref = make_ref()
+
+      pid =
+        spawn(fn ->
+          SpanRegistry.register_span(TestContext, span_ref)
+          SpanRegistry.unregister_span(TestContext, span_ref)
+          Process.sleep(:infinity)
+        end)
+
+      # Tombstone is visible after normal unregister
+      assert {:ok, ^span_ref} = wait_for(fn ->
+        case :ets.lookup(Module.concat(TestContext, SpanRegistryTable), pid) do
+          [{^pid, _, {:done, _}}] -> SpanRegistry.lookup_span(TestContext, pid)
+          _ -> nil
+        end
+      end)
+
+      Process.exit(pid, :kill)
+    end
+  end
+
   describe "ETS table properties" do
     test "table is public and accessible from any process" do
       span_ref = make_ref()
@@ -161,7 +233,7 @@ defmodule Witness.SpanRegistryTest do
       Task.async(fn ->
         # Direct ETS access should work (public table)
         table_name = Module.concat(TestContext, SpanRegistryTable)
-        assert [{_pid, ^span_ref}] = :ets.lookup(table_name, parent_pid)
+        assert [{_pid, ^span_ref, :active}] = :ets.lookup(table_name, parent_pid)
       end)
       |> Task.await()
     end
