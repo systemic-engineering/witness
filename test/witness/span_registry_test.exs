@@ -52,16 +52,17 @@ defmodule Witness.SpanRegistryTest do
       parent_ref = make_ref()
       SpanRegistry.register_span(TestContext, parent_ref)
 
-      child_task = Task.async(fn ->
-        child_ref = make_ref()
-        SpanRegistry.register_span(TestContext, child_ref)
+      child_task =
+        Task.async(fn ->
+          child_ref = make_ref()
+          SpanRegistry.register_span(TestContext, child_ref)
 
-        # Parent and child should have different refs
-        assert {:ok, ^child_ref} = SpanRegistry.lookup_span(TestContext, self())
-        assert {:ok, ^parent_ref} = SpanRegistry.lookup_span(TestContext, Process.get(:"$callers") |> List.first())
+          # Parent and child should have different refs
+          assert {:ok, ^child_ref} = SpanRegistry.lookup_span(TestContext, self())
+          assert {:ok, ^parent_ref} = SpanRegistry.lookup_span(TestContext, Process.get(:"$callers") |> List.first())
 
-        child_ref
-      end)
+          child_ref
+        end)
 
       _child_ref = Task.await(child_task)
 
@@ -178,23 +179,25 @@ defmodule Witness.SpanRegistryTest do
         end)
 
       # Wait until the ETS entry is visible
-      assert {:ok, ^span_ref} = wait_for(fn ->
-        case SpanRegistry.lookup_span(TestContext, pid) do
-          {:ok, _} = result -> result
-          _ -> nil
-        end
-      end)
+      assert {:ok, ^span_ref} =
+               wait_for(fn ->
+                 case SpanRegistry.lookup_span(TestContext, pid) do
+                   {:ok, _} = result -> result
+                   _ -> nil
+                 end
+               end)
 
       Process.exit(pid, :kill)
 
       # Entry becomes a tombstone — still findable for out-of-band processors
-      assert {:ok, ^span_ref} = wait_for(fn ->
-        # The :DOWN message arrives asynchronously; wait for the tombstone insert
-        case :ets.lookup(Module.concat(TestContext, SpanRegistryTable), pid) do
-          [{^pid, _, {:done, _}}] -> SpanRegistry.lookup_span(TestContext, pid)
-          _ -> nil
-        end
-      end)
+      assert {:ok, ^span_ref} =
+               wait_for(fn ->
+                 # The :DOWN message arrives asynchronously; wait for the tombstone insert
+                 case :ets.lookup(Module.concat(TestContext, SpanRegistryTable), pid) do
+                   [{^pid, _, {:done, _}}] -> SpanRegistry.lookup_span(TestContext, pid)
+                   _ -> nil
+                 end
+               end)
 
       # Swept away with ttl=0
       SpanRegistry.sweep(TestContext, 0)
@@ -212,12 +215,13 @@ defmodule Witness.SpanRegistryTest do
         end)
 
       # Tombstone is visible after normal unregister
-      assert {:ok, ^span_ref} = wait_for(fn ->
-        case :ets.lookup(Module.concat(TestContext, SpanRegistryTable), pid) do
-          [{^pid, _, {:done, _}}] -> SpanRegistry.lookup_span(TestContext, pid)
-          _ -> nil
-        end
-      end)
+      assert {:ok, ^span_ref} =
+               wait_for(fn ->
+                 case :ets.lookup(Module.concat(TestContext, SpanRegistryTable), pid) do
+                   [{^pid, _, {:done, _}}] -> SpanRegistry.lookup_span(TestContext, pid)
+                   _ -> nil
+                 end
+               end)
 
       Process.exit(pid, :kill)
     end
@@ -240,14 +244,15 @@ defmodule Witness.SpanRegistryTest do
 
     test "supports concurrent reads and writes" do
       # Spawn multiple processes writing concurrently
-      tasks = for _i <- 1..10 do
-        Task.async(fn ->
-          ref = make_ref()
-          SpanRegistry.register_span(TestContext, ref)
-          {:ok, ^ref} = SpanRegistry.lookup_span(TestContext, self())
-          ref
-        end)
-      end
+      tasks =
+        for _i <- 1..10 do
+          Task.async(fn ->
+            ref = make_ref()
+            SpanRegistry.register_span(TestContext, ref)
+            {:ok, ^ref} = SpanRegistry.lookup_span(TestContext, self())
+            ref
+          end)
+        end
 
       # All should succeed
       refs = Task.await_many(tasks)

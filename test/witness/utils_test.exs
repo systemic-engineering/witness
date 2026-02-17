@@ -18,15 +18,15 @@ defmodule Witness.UtilsTest do
 
   describe "as_map/2" do
     test "merges keyword lists" do
-      assert Utils.as_map([foo: "bar"], [fizz: "buzz"]) == %{foo: "bar", fizz: "buzz"}
+      assert Utils.as_map([foo: "bar"], fizz: "buzz") == %{foo: "bar", fizz: "buzz"}
     end
 
     test "second argument overwrites first" do
-      assert Utils.as_map([foo: "bar"], [foo: "bar2"]) == %{foo: "bar2"}
+      assert Utils.as_map([foo: "bar"], foo: "bar2") == %{foo: "bar2"}
     end
 
     test "merges map and keyword list" do
-      assert Utils.as_map(%{foo: "bar"}, [foo: "bar2", fizz: "buzz"]) == %{
+      assert Utils.as_map(%{foo: "bar"}, foo: "bar2", fizz: "buzz") == %{
                foo: "bar2",
                fizz: "buzz"
              }

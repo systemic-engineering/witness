@@ -145,7 +145,9 @@ defmodule Witness.SpanRegistry do
   def handle_cast({:monitor, pid}, state) do
     monitors =
       case state.monitors do
-        %{^pid => {ref, count}} -> Map.put(state.monitors, pid, {ref, count + 1})
+        %{^pid => {ref, count}} ->
+          Map.put(state.monitors, pid, {ref, count + 1})
+
         _ ->
           ref = Process.monitor(pid)
           Map.put(state.monitors, pid, {ref, 1})

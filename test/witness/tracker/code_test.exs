@@ -27,18 +27,18 @@ defmodule Witness.Tracker.CodeTest do
 
     test "handles 0-arity function syntax" do
       result =
-        TestContext.with_span [:test, :span], %{}, fn ->
+        TestContext.with_span([:test, :span], %{}, fn ->
           :result_value
-        end
+        end)
 
       assert result == :result_value
     end
 
     test "handles 1-arity function syntax with span modification" do
       result =
-        TestContext.with_span [:test, :span], %{}, fn span ->
+        TestContext.with_span([:test, :span], %{}, fn span ->
           Witness.Span.with_result(span, :custom_result)
-        end
+        end)
 
       assert result == :custom_result
     end

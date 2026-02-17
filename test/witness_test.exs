@@ -11,7 +11,6 @@ defmodule WitnessTest do
       prefix: [:test]
   end
 
-
   defmodule ContextWithSources do
     use Witness,
       app: :witness,
@@ -131,7 +130,6 @@ defmodule WitnessTest do
       assert config[:app] == :witness
       assert config[:prefix] == [:test]
     end
-
   end
 
   describe "child_spec/1" do
