@@ -85,7 +85,7 @@ defmodule Witness.Handler.Logger do
   end
 
   defp format_message(event_name, measurements, meta, observability_meta) do
-    event_str = event_name |> Enum.map(&to_string/1) |> Enum.join(".")
+    event_str = Enum.map_join(event_name, ".", &to_string/1)
 
     case {List.last(event_name), observability_meta[:status]} do
       {:start, _} ->
@@ -110,8 +110,7 @@ defmodule Witness.Handler.Logger do
     attributes =
       measurements
       |> Map.merge(meta)
-      |> Enum.map(fn {k, v} -> "#{k}=#{inspect(v)}" end)
-      |> Enum.join(" ")
+      |> Enum.map_join(" ", fn {k, v} -> "#{k}=#{inspect(v)}" end)
 
     [" | ", attributes]
   end

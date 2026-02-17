@@ -7,7 +7,7 @@ defmodule Witness.SourceTest do
     @behaviour Source
 
     @impl true
-    def __observable__() do
+    def __observable__ do
       %{
         context: MyContext,
         events: [[:event, :one], [:event, :two]]

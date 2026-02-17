@@ -25,7 +25,7 @@ defmodule Witness.HandlerTest do
     @behaviour Witness.Source
 
     @impl true
-    def __observable__() do
+    def __observable__ do
       %{
         context: TestContext,
         events: [[:test, :event, :one], [:test, :event, :two]]
@@ -44,7 +44,7 @@ defmodule Witness.HandlerTest do
     @behaviour Witness.Source
 
     @impl true
-    def __observable__() do
+    def __observable__ do
       %{
         context: ContextWithExtraEvents,
         events: [[:test, :event]]
@@ -63,7 +63,7 @@ defmodule Witness.HandlerTest do
     @behaviour Witness.Source
 
     @impl true
-    def __observable__() do
+    def __observable__ do
       %{
         context: Witness.HandlerTest.ContextWithSources,
         events: [[:test, :with_sources, :event, :one], [:test, :with_sources, :event, :two]]

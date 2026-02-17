@@ -13,77 +13,7 @@ defmodule Witness.Tracker.Code do
   }
 
   @doc false
-  def generate(:using, [context]) do
-    quote bind_quoted: [context: context], location: :keep do
-      alias Witness
-
-      context_name = inspect(context)
-
-      @doc "Delegates to `Witness.Tracker.track_event/4` with the `#{context_name}` context."
-      @empty_map Macro.escape(%{})
-      defmacro track_event(event_name, attributes, meta \\ @empty_map) do
-        Witness.Tracker.Code.generate(:track_event, [
-          __CALLER__,
-          unquote(context),
-          event_name,
-          attributes,
-          meta
-        ])
-      end
-
-      @doc "Delegates to `Witness.Tracker.with_span/4` with the `#{context_name}` context."
-      defmacro with_span(event_name, meta \\ @empty_map, do_or_fn) do
-        Witness.Tracker.Code.generate(:with_span, [
-          __CALLER__,
-          unquote(context),
-          event_name,
-          meta,
-          do_or_fn
-        ])
-      end
-
-      @doc "Delegates to `Witness.Tracker.active_span/1` with the `#{context_name}` context."
-      @spec active_span() :: Witness.Span.t() | nil
-      def active_span do
-        Witness.Tracker.active_span(unquote(context))
-      end
-
-      @doc "Delegates to `Witness.Tracker.set_active_span/2` with the `#{context_name}` context."
-      @spec set_active_span(Witness.Span.t() | nil) :: Witness.Span.t() | nil
-      def set_active_span(span_or_nil) do
-        Witness.Tracker.set_active_span(unquote(context), span_or_nil)
-      end
-
-      @doc "Delegates to `Witness.Tracker.add_span_metadata/2` with the `#{context_name}` context."
-      @spec add_span_meta(Witness.meta()) :: boolean
-      def add_span_meta(meta) do
-        Witness.Tracker.add_span_meta(unquote(context), meta)
-      end
-
-      @doc """
-      Delegates to `Witness.Tracker.set_span_status/2` or `/3` with the `#{context_name}` context.
-
-      Accepts:
-      - `{:ok}` or `{:error, reason}` tuples
-      - `:ok`, `:error`, or `:unknown` atoms with optional details
-      """
-      @spec set_span_status({:ok} | {:error, any()}) :: boolean
-      @spec set_span_status(Witness.Span.status_code(), Witness.Span.status_details()) :: boolean
-      def set_span_status(status_or_tuple, details \\ nil)
-
-      def set_span_status({:ok}, _details) do
-        Witness.Tracker.set_span_status(unquote(context), {:ok})
-      end
-
-      def set_span_status({:error, reason}, _details) do
-        Witness.Tracker.set_span_status(unquote(context), {:error, reason})
-      end
-
-      def set_span_status(status, details) when status in [:ok, :error, :unknown] do
-        Witness.Tracker.set_span_status(unquote(context), status, details)
-      end
-    end
-  end
+  def generate(:using, [context]), do: build_using_quote(context)
 
   def generate(:track_event, [caller, context, event_name, attributes, meta]) do
     enforce_static_event_name!(caller, :track_event, event_name)
@@ -111,9 +41,12 @@ defmodule Witness.Tracker.Code do
     remember_event(caller, context, event_name, [:exception])
 
     meta = include_caller(caller, meta)
-
     {span_var, code} = extract_span_var_and_code(do_or_fn)
 
+    build_with_span_quote(context, event_name, meta, span_var, code)
+  end
+
+  defp build_with_span_quote(context, event_name, meta, span_var, code) do
     quote generated: true, location: :keep do
       Witness.Tracker._with_span(
         unquote(context),
@@ -230,6 +163,79 @@ defmodule Witness.Tracker.Code do
         unquote(meta),
         %{caller: unquote({module, function})}
       )
+    end
+  end
+
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
+  defp build_using_quote(context) do
+    quote bind_quoted: [context: context], location: :keep do
+      alias Witness
+
+      context_name = inspect(context)
+
+      @doc "Delegates to `Witness.Tracker.track_event/4` with the `#{context_name}` context."
+      @empty_map Macro.escape(%{})
+      defmacro track_event(event_name, attributes, meta \\ @empty_map) do
+        Witness.Tracker.Code.generate(:track_event, [
+          __CALLER__,
+          unquote(context),
+          event_name,
+          attributes,
+          meta
+        ])
+      end
+
+      @doc "Delegates to `Witness.Tracker.with_span/4` with the `#{context_name}` context."
+      defmacro with_span(event_name, meta \\ @empty_map, do_or_fn) do
+        Witness.Tracker.Code.generate(:with_span, [
+          __CALLER__,
+          unquote(context),
+          event_name,
+          meta,
+          do_or_fn
+        ])
+      end
+
+      @doc "Delegates to `Witness.Tracker.active_span/1` with the `#{context_name}` context."
+      @spec active_span() :: Witness.Span.t() | nil
+      def active_span do
+        Witness.Tracker.active_span(unquote(context))
+      end
+
+      @doc "Delegates to `Witness.Tracker.set_active_span/2` with the `#{context_name}` context."
+      @spec set_active_span(Witness.Span.t() | nil) :: Witness.Span.t() | nil
+      def set_active_span(span_or_nil) do
+        Witness.Tracker.set_active_span(unquote(context), span_or_nil)
+      end
+
+      @doc "Delegates to `Witness.Tracker.add_span_metadata/2` with the `#{context_name}` context."
+      @spec add_span_meta(Witness.meta()) :: boolean
+      def add_span_meta(meta) do
+        Witness.Tracker.add_span_meta(unquote(context), meta)
+      end
+
+      @doc """
+      Delegates to `Witness.Tracker.set_span_status/2` or `/3` with the `#{context_name}` context.
+
+      Accepts:
+      - `{:ok}` or `{:error, reason}` tuples
+      - `:ok`, `:error`, or `:unknown` atoms with optional details
+      """
+      @spec set_span_status({:ok} | {:error, any()}) :: boolean
+      @spec set_span_status(Witness.Span.status_code(), Witness.Span.status_details()) :: boolean
+      def set_span_status(status_or_tuple, details \\ nil)
+
+      def set_span_status({:ok}, _details) do
+        Witness.Tracker.set_span_status(unquote(context), {:ok})
+      end
+
+      def set_span_status({:error, reason}, _details) do
+        Witness.Tracker.set_span_status(unquote(context), {:error, reason})
+      end
+
+      def set_span_status(status, details) when status in [:ok, :error, :unknown] do
+        Witness.Tracker.set_span_status(unquote(context), status, details)
+      end
     end
   end
 

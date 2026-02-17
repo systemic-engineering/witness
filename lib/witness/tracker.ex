@@ -224,12 +224,12 @@ defmodule Witness.Tracker do
   def _with_span(context, [_ | _] = event_name, meta, span_function)
       when Witness.is_context(context) and is_function(span_function, 1) do
     # Check if context is active - if not, just execute the function without telemetry
-    if not Witness.config(context, :active) do
+    if Witness.config(context, :active) do
+      do_with_span(context, event_name, meta, span_function)
+    else
       %Span{id: _ref} = span = Span.new(context, event_name, meta: meta)
       %Span{result: result} = span_function.(span)
       result
-    else
-      do_with_span(context, event_name, meta, span_function)
     end
   end
 

@@ -12,13 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: systemic-engineer/ci/actions/nix-setup@main
-
-      - uses: systemic-engineer/ci/actions/nix-elixir-test@main
+      - uses: systemic-engineer/ci/actions/elixir-setup@main
         with:
-          coverage: false
+          elixir-version: "1.18"
+          otp-version: "27"
 
-      - uses: systemic-engineer/ci/actions/nix-elixir-quality@main
+      - uses: systemic-engineer/ci/actions/elixir-test@main
+
+      - uses: systemic-engineer/ci/actions/elixir-quality@main
         with:
           format: true
           credo: true
