@@ -9,7 +9,8 @@ defmodule Witness.Supervisor do
   """
   @behaviour Supervisor
 
-  require Witness
+  require Witness.Guards
+  import Witness.Guards, only: [is_context: 1]
   require Logger
 
   @typedoc "A child_spec for an instance of this Supervisor."
@@ -17,7 +18,7 @@ defmodule Witness.Supervisor do
 
   @doc false
   @spec child_spec(Witness.t()) :: child_spec()
-  def child_spec(context) when Witness.is_context(context) do
+  def child_spec(context) when is_context(context) do
     # coveralls-ignore-next-line
     %{
       id: {__MODULE__, context},
@@ -27,7 +28,7 @@ defmodule Witness.Supervisor do
   end
 
   @doc false
-  def start_link(context) when Witness.is_context(context) do
+  def start_link(context) when is_context(context) do
     # coveralls-ignore-next-line
     Supervisor.start_link(__MODULE__, context, name: context)
   end
