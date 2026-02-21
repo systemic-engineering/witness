@@ -126,8 +126,27 @@ defmodule Witness do
       raise ArgumentError, "expected config to be a keyword list but got: #{Macro.to_string(config)}"
     end
 
+    log_macros =
+      for level <- Logger.levels() do
+        quote do
+          defmacro unquote(level)(message, metadata \\ @__witness_empty_map) do
+            context = __MODULE__
+            level_atom = unquote(level)
+
+            quote do
+              require Witness.Logger
+              Witness.Logger.log(unquote(context), unquote(level_atom), unquote(message), unquote(metadata))
+            end
+          end
+        end
+      end
+
     quote location: :keep do
       @behaviour unquote(__MODULE__)
+
+      @__witness_empty_map Macro.escape(%{})
+
+      unquote_splicing(log_macros)
 
       use unquote(__MODULE__).Tracker,
         context: __MODULE__
