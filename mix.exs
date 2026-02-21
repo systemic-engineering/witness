@@ -41,11 +41,11 @@ defmodule Witness.MixProject do
       {:telemetry, "~> 1.2"},
       {:nimble_options, "~> 1.1"},
 
-      # OpenTelemetry integration
-      {:opentelemetry_api, "~> 1.4"},
-      {:opentelemetry, "~> 1.5", only: [:dev, :test]},
-      {:opentelemetry_exporter, "~> 1.10", only: [:dev, :test]},
-      {:opentelemetry_telemetry, "~> 1.1"},
+      # OpenTelemetry integration — optional: only required when using Witness.Handler.OpenTelemetry
+      {:opentelemetry_api, "~> 1.4", optional: true},
+      {:opentelemetry, "~> 1.5", only: [:dev, :test], optional: true},
+      {:opentelemetry_exporter, "~> 1.10", only: [:dev, :test], optional: true},
+      {:opentelemetry_telemetry, "~> 1.1", optional: true},
 
       # Development and testing
       {:excoveralls, "~> 0.18", only: :test},
