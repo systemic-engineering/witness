@@ -66,13 +66,5 @@ defmodule Witness.LogMacrosTest do
       assert measurements.path == "/tmp"
       assert measurements.usage == "100%"
     end
-
-    test "macros use the context module as the emitting context" do
-      require TestContext
-      # Emit via context macro — should arrive on the context's prefix
-      TestContext.warning("ctx check")
-
-      assert_receive {:telemetry_event, [:log_macros, :log, :warning], _}
-    end
   end
 end

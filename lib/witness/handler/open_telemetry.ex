@@ -2,7 +2,7 @@ defmodule Witness.Handler.OpenTelemetry do
   @moduledoc false
   @behaviour Witness.Handler
 
-  if Code.ensure_loaded?(OpenTelemetry) do
+  if :code.which(OpenTelemetry) != :non_existing do
     alias OpenTelemetry, as: Otel
     alias OpentelemetryTelemetry, as: OtelTranslator
     alias Witness.Utils

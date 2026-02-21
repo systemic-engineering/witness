@@ -14,6 +14,10 @@ defmodule Witness.Test do
   format `"[level] message\\n"` — matching `ExUnit.CaptureLog.capture_log/1`
   semantics so it works as a drop-in replacement.
 
+  Only captures log events emitted synchronously in the calling process.
+  Events logged from spawned processes may arrive after the capture window closes
+  and will be silently missed — the same limitation as `ExUnit.CaptureLog`.
+
   ## Example
 
       log = Witness.Test.capture_log(MyApp.Observability, fn ->
