@@ -56,12 +56,32 @@ defmodule Witness.Supervisor do
   end
 
   defp load_handler(context) do
-    context
-    |> Witness.config(:handler)
-    |> Enum.map(fn
-      {module, config} -> {module, config}
-      module -> {module, context}
-    end)
+    handlers =
+      context
+      |> Witness.config(:handler)
+      |> Enum.map(fn
+        {module, config} -> {module, config}
+        module -> {module, context}
+      end)
+
+    maybe_add_store_handler(handlers, context)
+  end
+
+  defp maybe_add_store_handler(handlers, context) do
+    already_has_store? =
+      Enum.any?(handlers, fn {module, _} -> module == Witness.Handler.Store end)
+
+    case {already_has_store?, Witness.config(context, :store)} do
+      {true, _} ->
+        handlers
+
+      {false, {store_module, store_opts}} ->
+        store_config = Keyword.put(store_opts, :context, context)
+        handlers ++ [{Witness.Handler.Store, {store_module, store_config}}]
+
+      {false, _} ->
+        handlers
+    end
   end
 
   defp attach_to_context!(handler, context) do
