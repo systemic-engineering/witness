@@ -33,11 +33,13 @@ defmodule Witness.Handler.StoreTest do
 
   describe "behaviour" do
     test "implements Witness.Handler behaviour" do
-      assert function_exported?(StoreHandler, :handle_event, 4)
+      assert Code.ensure_loaded?(StoreHandler)
+      assert {:handle_event, 4} in StoreHandler.__info__(:functions)
     end
 
     test "implements child_spec/1" do
-      assert function_exported?(StoreHandler, :child_spec, 1)
+      assert Code.ensure_loaded?(StoreHandler)
+      assert {:child_spec, 1} in StoreHandler.__info__(:functions)
     end
   end
 
