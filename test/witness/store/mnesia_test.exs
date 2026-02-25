@@ -299,4 +299,22 @@ defmodule Witness.Store.MnesiaTest do
       assert {Mnesia, :start_link, [^config]} = spec.start
     end
   end
+
+  describe "event key shape" do
+    test "list_events returns key as {timestamp_us, ref} 2-tuple, not double-wrapped" do
+      config = [context: TestContext]
+      {:ok, pid} = Mnesia.start_link(config)
+
+      :ok = Mnesia.store_event([:keyed], %{n: 1}, %{}, TestContext, config)
+
+      {:ok, [event]} = Mnesia.list_events(TestContext, [], config)
+
+      # Key must be a plain 2-tuple {timestamp_us, ref}, not {{timestamp_us, ref}}
+      assert {ts, ref} = event.key
+      assert is_integer(ts)
+      assert is_reference(ref)
+
+      GenServer.stop(pid)
+    end
+  end
 end
