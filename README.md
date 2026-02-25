@@ -22,7 +22,7 @@ Add `witness` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:witness, "~> 0.1.0"}
+    {:witness, "~> 0.3"}
   ]
 end
 ```
@@ -203,7 +203,71 @@ use Witness,
   active: true,               # Optional: Enable/disable (default: true)
   handler: [...],             # Optional: List of handlers (default: [Witness.Handler.OpenTelemetry])
   sources: [...],             # Optional: Explicit source modules (default: auto-discover)
-  extra_events: [...]         # Optional: Additional events not tracked by sources
+  extra_events: [...],        # Optional: Additional events not tracked by sources
+  store: {Witness.Store.Mnesia, []}  # Optional: Persistent event store (default: nil)
+```
+
+### Event Persistence
+
+Witness supports pluggable persistent storage via the `:store` option. Events flowing
+through the telemetry pipeline can be written to any backend that implements the
+`Witness.Store` behaviour.
+
+The built-in backend is `Witness.Store.Mnesia`:
+
+```elixir
+defmodule MyApp.Users.Observability do
+  use Witness,
+    app: :my_app,
+    prefix: [:users],
+    store: {Witness.Store.Mnesia, []}
+end
+```
+
+For disc-backed persistence across restarts:
+
+```elixir
+store: {Witness.Store.Mnesia, storage_type: :disc_copies}
+```
+
+Query persisted events with `Witness.Store.Mnesia.list_events/3`:
+
+```elixir
+# All events
+{:ok, events} = Witness.Store.Mnesia.list_events(MyApp.Users.Observability, [], [])
+
+# Filtered
+{:ok, events} = Witness.Store.Mnesia.list_events(MyApp.Users.Observability,
+  [after: cutoff_ts, event_name: [:user, :created], limit: 50],
+  []
+)
+```
+
+#### Custom Store Backends
+
+Implement `Witness.Store` to use any storage system:
+
+```elixir
+defmodule MyApp.Store.Postgres do
+  @behaviour Witness.Store
+
+  @impl true
+  def store_event(event_name, attributes, meta, context, config) do
+    # Write to Postgres
+    :ok
+  end
+
+  @impl true
+  def list_events(context, query_opts, config) do
+    # Query from Postgres
+    {:ok, []}
+  end
+
+  @impl true
+  def child_spec(config) do
+    %{id: __MODULE__, start: {__MODULE__, :start_link, [config]}}
+  end
+end
 ```
 
 ### Runtime Configuration

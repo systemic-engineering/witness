@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-25
+
+### Added
+- `Witness.Store` behaviour — a pluggable interface for persistent event storage
+  backends. Defines three callbacks: `store_event/5`, `list_events/3`, and
+  `child_spec/1`.
+- `Witness.Store.Mnesia` — a Mnesia-backed store implementation. Each Witness
+  context gets its own isolated table (`Module.concat(context, WitnessEvents)`),
+  keyed by `{timestamp_us, ref}` as an `ordered_set` for chronological ordering.
+  Supports `:after`, `:before`, `:limit`, and `:event_name` query filters.
+  Storage type is configurable (`ram_copies` by default, `disc_copies` optional).
+- `Witness.Handler.Store` — a handler bridge that routes telemetry events into
+  any configured `Witness.Store` backend. Logs warnings on store failures without
+  disrupting the telemetry pipeline.
+- `:store` config key on `Witness` contexts — accepts a `{module, config}` tuple
+  to enable persistence, or `nil` to disable (default).
+
 ## [0.2.0] - 2026-02-17
 
 ### Added
@@ -46,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Production-grade Credo configuration
 - Hippocratic License 3.0
 
-[Unreleased]: https://github.com/alexwolf/witness/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/alexwolf/witness/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/alexwolf/witness/releases/tag/v0.1.0
+[Unreleased]: https://github.com/systemic-engineer/witness/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/systemic-engineer/witness/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/systemic-engineer/witness/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/systemic-engineer/witness/releases/tag/v0.1.0
