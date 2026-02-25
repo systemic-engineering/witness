@@ -1,7 +1,7 @@
 defmodule Witness.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/systemic-engineer/witness"
 
   def project do
@@ -31,7 +31,7 @@ defmodule Witness.MixProject do
 
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger, :mnesia]
     ]
   end
 

@@ -26,7 +26,7 @@ defmodule Witness.Test do
       assert log =~ "some warning"
 
   """
-  @spec capture_log(Witness.t(), (() -> any())) :: String.t()
+  @spec capture_log(Witness.t(), (-> any())) :: String.t()
   def capture_log(context, fun) when is_atom(context) and is_function(fun, 0) do
     prefix = context.config()[:prefix]
     ref = make_ref()
