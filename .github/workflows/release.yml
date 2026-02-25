@@ -11,8 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: systemic-engineer/ci/actions/nix-setup@main
+      - uses: DeterminateSystems/nix-installer-action@main
 
-      - uses: systemic-engineer/ci/actions/hex-publish@main
-        with:
-          hex-api-key: ${{ secrets.HEX_API_KEY }}
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Get dependencies
+        run: nix develop -c mix deps.get
+
+      - name: Publish to Hex.pm
+        run: nix develop -c mix hex.publish --yes
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}

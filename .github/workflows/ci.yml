@@ -12,12 +12,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: systemic-engineer/ci/actions/nix-setup@main
+      - uses: DeterminateSystems/nix-installer-action@main
 
-      - uses: systemic-engineer/ci/actions/nix-elixir-test@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
-      - uses: systemic-engineer/ci/actions/nix-elixir-quality@main
-        with:
-          format: true
-          credo: true
-          dialyzer: false
+      - name: Get dependencies
+        run: nix develop -c mix deps.get
+
+      - name: Compile
+        run: nix develop -c mix compile --warnings-as-errors
+
+      - name: Run tests
+        run: nix develop -c mix test
+
+      - name: Check formatting
+        run: nix develop -c mix format --check-formatted
+
+      - name: Run Credo
+        run: nix develop -c mix credo
