@@ -264,6 +264,14 @@ defmodule Witness.Store.MnesiaTest do
 
   describe "disc_copies configuration" do
     test "creates table with disc_copies when configured" do
+      # disc_copies requires a disc-based Mnesia schema.
+      # Stop Mnesia, create schema on disc, restart.
+      :mnesia.stop()
+      mnesia_dir = ~c"/tmp/witness_mnesia_test_#{System.unique_integer([:positive])}"
+      Application.put_env(:mnesia, :dir, mnesia_dir)
+      :mnesia.create_schema([node()])
+      :mnesia.start()
+
       config = [context: DiscContext, storage_type: :disc_copies]
       {:ok, pid} = Mnesia.start_link(config)
 
@@ -271,6 +279,13 @@ defmodule Witness.Store.MnesiaTest do
       assert :mnesia.table_info(table, :disc_copies) == [node()]
 
       GenServer.stop(pid)
+
+      # Cleanup: stop Mnesia, delete schema, restart with ram-only
+      :mnesia.stop()
+      :mnesia.delete_schema([node()])
+      Application.delete_env(:mnesia, :dir)
+      File.rm_rf!(to_string(mnesia_dir))
+      :mnesia.start()
     end
   end
 
