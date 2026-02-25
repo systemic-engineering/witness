@@ -147,4 +147,35 @@ defmodule WitnessTest do
       refute Witness.source?(NotASource)
     end
   end
+
+  describe "store config" do
+    test "accepts a valid :store config with {module, config} tuple" do
+      defmodule ContextWithStore do
+        use Witness,
+          app: :witness,
+          prefix: [:test, :store],
+          store: {Witness.Store.Mnesia, []}
+      end
+
+      config = ContextWithStore.config()
+      assert config[:store] == {Witness.Store.Mnesia, []}
+    end
+
+    test "accepts nil :store config" do
+      defmodule ContextWithNilStore do
+        use Witness,
+          app: :witness,
+          prefix: [:test, :nil_store],
+          store: nil
+      end
+
+      config = ContextWithNilStore.config()
+      assert config[:store] == nil
+    end
+
+    test "store defaults to nil when not configured" do
+      config = TestContext.config()
+      assert config[:store] == nil
+    end
+  end
 end
