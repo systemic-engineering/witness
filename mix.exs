@@ -1,8 +1,21 @@
 defmodule Witness.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.4.0"
   @source_url "https://github.com/systemic-engineer/witness"
+
+  # Gleam packages are pre-built with `gleam build --target erlang`.
+  # Their BEAM output goes on the code path so Elixir can call them.
+  @gleam_packages [
+    {"../bias", ~w(bias gleam_stdlib)},
+    {"../fragmentation/gleam", ~w(fragmentation)}
+  ]
+
+  for {pkg, modules} <- @gleam_packages,
+      mod <- modules do
+    path = Path.expand(pkg <> "/build/dev/erlang/#{mod}/ebin", __DIR__)
+    if File.dir?(path), do: Code.prepend_path(String.to_charlist(path))
+  end
 
   def project do
     [
@@ -10,6 +23,7 @@ defmodule Witness.MixProject do
       version: @version,
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      prune_code_paths: false,
       deps: deps(),
       description: description(),
       package: package(),
