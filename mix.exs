@@ -47,6 +47,10 @@ defmodule Witness.MixProject do
       {:opentelemetry_exporter, "~> 1.10", only: [:dev, :test], optional: true},
       {:opentelemetry_telemetry, "~> 1.1", optional: true},
 
+      # Ecto store — optional: only required when using Witness.Store.Ecto
+      {:ecto, "~> 3.12", optional: true},
+      {:fragmentation_repo, path: "../fragmentation-repo", optional: true, only: :test},
+
       # Development and testing
       {:excoveralls, "~> 0.18", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
