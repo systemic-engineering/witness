@@ -196,9 +196,7 @@ defmodule Witness.Server.MCPBiasTest do
 
   describe "round-trip" do
     setup do
-      start_supervised!(
-        {Witness.Store.Mnesia, context: Witness.Server, storage_type: :ram_copies}
-      )
+      start_supervised!({Witness.Store.Mnesia, context: Witness.Server, storage_type: :ram_copies})
 
       :mnesia.clear_table(Module.concat(Witness.Server, WitnessEvents))
 
