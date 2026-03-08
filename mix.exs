@@ -47,7 +47,9 @@ defmodule Witness.MixProject do
       {:opentelemetry_exporter, "~> 1.10", only: [:dev, :test], optional: true},
       {:opentelemetry_telemetry, "~> 1.1", optional: true},
 
-      # Ecto store — optional: only required when using Witness.Store.Ecto
+      # Ecto store — compiled when Ecto is available in the consumer.
+      # optional: true means witness compiles without it; the Code.ensure_loaded?
+      # guard in ecto.ex/event.ex skips compilation when Ecto isn't present.
       {:ecto, "~> 3.12", optional: true},
       {:fragmentation_repo, path: "../fragmentation-repo", optional: true, only: :test},
 
