@@ -15,7 +15,9 @@ format:
     mix format
 
 # Pre-commit gate: run by the global TDD commit-msg hook
-pre-commit: test-stale
+pre-commit:
+    mix test
 
 # Pre-push gate: full test suite before pushing
-pre-push: test
+pre-push:
+    mix test

@@ -4,36 +4,26 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    flakes.url = "path:/Users/reed/.flakes";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, flakes }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-
-        elixir = pkgs.beam.packages.erlang_27.elixir_1_18;
-
-        # Development dependencies
-        buildInputs = with pkgs; [
-          elixir
-          erlang_27
-          git
-          gnupg
-        ];
+        beam = flakes.lib.${system}.beam;
+        nif  = flakes.lib.${system}.nif;
       in
       {
         devShells.default = pkgs.mkShell {
-          inherit buildInputs;
+          buildInputs = [
+            pkgs.git
+            pkgs.gnupg
+          ] ++ beam.elixirTools ++ nif.nifTools;
 
-          shellHook = ''
-            # Set up Mix to use local hex/rebar
-            mkdir -p .nix-mix
-            mkdir -p .nix-hex
-            export MIX_HOME=$PWD/.nix-mix
-            export HEX_HOME=$PWD/.nix-hex
-            export PATH=$MIX_HOME/bin:$PATH
-            export PATH=$HEX_HOME/bin:$PATH
-            export LANG=en_US.UTF-8
+          shellHook =
+            beam.elixirHook +
+            nif.nifHook + ''
             export ERL_AFLAGS="-kernel shell_history enabled"
           '';
         };
