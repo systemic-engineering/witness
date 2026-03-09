@@ -48,7 +48,7 @@ defmodule Witness.Server do
   @impl Supervisor
   def init(_opts) do
     children = [
-      Witness.DefaultRepo
+      Witness.InMemory
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

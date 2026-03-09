@@ -7,7 +7,7 @@ defmodule Witness.Adapter.Mnesia do
 
   ## Configuration
 
-      config :witness, Witness.DefaultRepo,
+      config :witness, Witness.InMemory,
         adapter: Witness.Adapter.Mnesia,
         storage_type: :ram_copies    # or :disc_copies
   """

@@ -10,15 +10,15 @@ defmodule Witness.ServerTest do
   end
 
   describe "start_link/1" do
-    test "starts DefaultRepo as child" do
+    test "starts InMemory as child" do
       :mnesia.start()
       {:ok, _pid} = start_supervised(Witness.Server)
 
       # Repo is running: can insert and read commits
       commit = %Witness.Event{sha: "test123", data: "hello", message: "@test", parent: nil}
-      {:ok, _} = Witness.DefaultRepo.insert(commit)
+      {:ok, _} = Witness.InMemory.insert(commit)
 
-      found = Witness.DefaultRepo.get(Witness.Event, "test123")
+      found = Witness.InMemory.get(Witness.Event, "test123")
       assert found.data == "hello"
     end
   end

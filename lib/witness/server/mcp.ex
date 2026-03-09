@@ -124,7 +124,7 @@ defmodule Witness.Server.MCP do
     name = Map.get(args, "name", "anonymous")
     email = Map.get(args, "email", "#{name}@witness")
 
-    actor = Actor.new(name: name, email: email, repo: Witness.DefaultRepo)
+    actor = Actor.new(name: name, email: email, repo: Witness.InMemory)
     identity = Actor.identity(actor)
 
     obs = %{"ref" => "init", "payload" => JSON.encode!(identity)}

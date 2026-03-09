@@ -5,7 +5,7 @@ defmodule Witness.Server.MCPBiasTest do
 
   setup do
     :mnesia.start()
-    start_supervised!(Witness.DefaultRepo)
+    start_supervised!(Witness.InMemory)
     :ok
   end
 

@@ -154,11 +154,11 @@ defmodule WitnessTest do
         use Witness,
           app: :witness,
           prefix: [:test, :repo],
-          repo: Witness.DefaultRepo
+          repo: Witness.InMemory
       end
 
       config = ContextWithRepo.config()
-      assert config[:repo] == Witness.DefaultRepo
+      assert config[:repo] == Witness.InMemory
     end
 
     test "accepts nil :repo config" do
