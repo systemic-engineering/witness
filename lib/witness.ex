@@ -60,6 +60,8 @@ config_schema =
 
 config_types = Enum.map(config_schema.schema, &NimbleOptions.option_typespec([&1]))
 
+Witness.Code.setup()
+
 defmodule Witness do
   @moduledoc """
   A `use`able module to create an observability context for parts of your app.
@@ -133,6 +135,8 @@ defmodule Witness do
       raise ArgumentError, "expected config to be a keyword list but got: #{Macro.to_string(config)}"
     end
 
+    t0 = System.monotonic_time()
+
     log_macros =
       for level <- Logger.levels() do
         quote do
@@ -150,6 +154,13 @@ defmodule Witness do
 
     quote location: :keep do
       @behaviour unquote(__MODULE__)
+
+      Module.register_attribute(__MODULE__, :witness, accumulate: true)
+      @witness_t0 unquote(t0)
+      @on_definition Witness.Code
+      @before_compile Witness.Code
+      @after_compile Witness.Code
+      @after_verify Witness.Code
 
       @__witness_empty_map Macro.escape(%{})
 
