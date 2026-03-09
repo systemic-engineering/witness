@@ -46,7 +46,7 @@ config_schema =
       type: :boolean,
       required: false,
       default: false,
-      doc: "When true, starts a ModuleActor and dynamic supervision for children."
+      doc: "When true, starts a Witness.Actor and dynamic supervision for children."
     ],
     snitch: [
       type: :boolean,
