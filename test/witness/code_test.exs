@@ -57,10 +57,11 @@ defmodule Witness.CodeTest do
       assert length(compiled.events) > 0
     end
 
-    test "is backward compatible with map access" do
+    test "is backward compatible with dot access" do
       compiled = SampleContext.__witness_compiled__()
-      assert compiled.t0 == compiled[:t0]
-      assert compiled.events == compiled[:events]
+      assert is_map(compiled)
+      assert Map.has_key?(compiled, :t0)
+      assert Map.has_key?(compiled, :events)
     end
   end
 

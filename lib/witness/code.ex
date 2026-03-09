@@ -63,6 +63,19 @@ defmodule Witness.Code do
       def __witness__ do
         %{t0: @witness_t0, events: @witness}
       end
+
+      def __witness_compiled__ do
+        %Witness{
+          module: __MODULE__,
+          prefix: config()[:prefix],
+          repos: config()[:repos] || [],
+          domain: config()[:domain],
+          supervise: config()[:supervise] || false,
+          snitch: config()[:snitch] || false,
+          t0: @witness_t0,
+          events: @witness
+        }
+      end
     end
   end
 
