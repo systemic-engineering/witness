@@ -449,6 +449,20 @@ defmodule Witness do
   @spec source?(module) :: boolean
   defdelegate source?(module), to: Source
 
+  @doc """
+  Creates a live `%Witness{}` from a module's compiled witness data.
+
+  Sets `t0` to the current monotonic time and stores the witness
+  in the calling process's dictionary.
+  """
+  @spec start(module) :: witness
+  def start(module) do
+    compiled = module.__witness_compiled__()
+    witness = %__MODULE__{compiled | t0: System.monotonic_time()}
+    module.__witness__(witness)
+    witness
+  end
+
   @doc false
   def find_witness_parent(module) do
     module
