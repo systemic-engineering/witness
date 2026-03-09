@@ -46,10 +46,12 @@ defmodule Witness.Server do
   end
 
   @impl Supervisor
-  def init(_opts) do
-    children = [
-      Witness.InMemory
-    ]
+  def init(opts) do
+    sync_repo = Keyword.get(opts, :sync_repo)
+
+    children =
+      [Witness.InMemory] ++
+        if(sync_repo, do: [Witness.InMemory.Sync.child_spec(repo: sync_repo)], else: [])
 
     Supervisor.init(children, strategy: :one_for_one)
   end
