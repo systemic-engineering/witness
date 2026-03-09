@@ -1,12 +1,14 @@
 defmodule Witness.Server.MCP do
   @moduledoc """
-  MCP server for Witness observability.
+  MCP IO adapter for Witness sessions.
 
-  State machine driven by `Witness.Actor`. The tool surface changes based on
-  session lifecycle:
+  Thin protocol translation layer — parses JSON-RPC, delegates to
+  `Witness.Session` GenServer, formats responses. No state of its own
+  beyond the session PID.
 
+  State machine:
     - `:uninitialized` → tools = [`init`]
-    - `{:active, actor}` → tools = [`bias`, `query`, `exit`]
+    - `{:active, session_pid}` → tools = [`bias`, `query`, `exit`]
 
   Transitions emit `notifications/tools/list_changed` so the client discovers
   the new surface.
@@ -27,11 +29,9 @@ defmodule Witness.Server.MCP do
     - `ping`                      — liveness check
   """
 
-  alias Witness.Actor
-  alias Witness.Event
   alias Witness.Session
 
-  @server_info %{name: "witness-mcp", version: "0.3.0"}
+  @server_info %{name: "witness-mcp", version: "0.4.0"}
   @protocol_version "2024-11-05"
 
   @parse_error -32_700
@@ -118,74 +118,73 @@ defmodule Witness.Server.MCP do
   end
 
   # ---------------------------------------------------------------------------
-  # Tool dispatch — state-gated
+  # Tool dispatch — state-gated, delegates to Session GenServer
   # ---------------------------------------------------------------------------
 
   defp dispatch("init", args, :uninitialized) do
     name = Map.get(args, "name", "anonymous")
     email = Map.get(args, "email", "#{name}@witness")
 
-    identity = %Witness.Actor.Identity{name: name, email: email}
+    {:ok, session_pid} =
+      Session.start_link(
+        name: name,
+        author: email,
+        repos: [Witness.InMemory]
+      )
 
-    witness = %Witness{
-      module: __MODULE__,
-      prefix: [:mcp, :session],
-      identity: identity,
-      session: Session.new(%{author: email, name: name}),
-      repos: [Witness.InMemory],
-      head: nil
-    }
+    identity = %Witness.Actor.Identity{name: name, email: email}
+    Session.join(session_pid, identity)
 
     identity_map = %{name: name, email: email}
     obs = %{"ref" => "init", "payload" => JSON.encode!(identity_map)}
-    {witness, %{obs_sha: obs_sha}} = Actor.bias(witness, "@init", obs, nil, nil)
+    {:ok, %{obs_sha: obs_sha}} = Session.bias(session_pid, "@init", obs, nil, nil)
 
     result = {:ok, JSON.encode!(Map.put(identity_map, :obs_sha, obs_sha))}
-    {{:active, witness}, notifications} = transition({:active, witness})
-    {result, {:active, witness}, notifications}
+    {{:active, session_pid}, notifications} = transition({:active, session_pid})
+    {result, {:active, session_pid}, notifications}
   end
 
-  defp dispatch("bias", args, {:active, witness}) do
+  defp dispatch("bias", args, {:active, session_pid}) do
     annotation = Map.get(args, "annotation", "@signal")
     observation = Map.get(args, "observation", %{})
     decision = Map.get(args, "decision")
     action = Map.get(args, "action")
 
-    {witness, result} = Actor.bias(witness, annotation, observation, decision, action)
+    case Session.bias(session_pid, annotation, observation, decision, action) do
+      {:ok, shas} ->
+        {{:ok, JSON.encode!(shas)}, {:active, session_pid}, []}
 
-    case result do
       {:error, reason} ->
-        {{:error, reason}, {:active, witness}, []}
-
-      shas ->
-        {{:ok, JSON.encode!(shas)}, {:active, witness}, []}
+        {{:error, reason}, {:active, session_pid}, []}
     end
   end
 
-  defp dispatch("query", args, {:active, witness}) do
-    [repo | _] = witness.repos
-
+  defp dispatch("query", args, {:active, session_pid}) do
     result =
       cond do
         Map.get(args, "head") ->
-          case witness.head do
-            nil -> {:error, "No commits yet"}
-            sha -> query_sha(repo, sha)
+          case Session.query(session_pid, :head) do
+            {:ok, event} -> {:ok, format_event(event)}
+            {:error, reason} -> {:error, reason}
           end
 
         sha = Map.get(args, "sha") ->
-          query_sha(repo, sha)
+          case Session.query(session_pid, sha) do
+            {:ok, event} -> {:ok, format_event(event)}
+            {:error, reason} -> {:error, reason}
+          end
 
         true ->
           {:error, "Provide sha or head:true"}
       end
 
-    {result, {:active, witness}, []}
+    {result, {:active, session_pid}, []}
   end
 
-  defp dispatch("exit", args, {:active, witness}) do
+  defp dispatch("exit", args, {:active, session_pid}) do
     annotation = Map.get(args, "annotation", "@exit")
-    {_witness, root_sha} = Actor.seal(witness, annotation)
+    {:ok, root_sha} = Session.seal(session_pid, annotation)
+    GenServer.stop(session_pid)
 
     result = {:ok, JSON.encode!(%{root_sha: root_sha})}
     {:uninitialized, notifications} = transition(:uninitialized)
@@ -193,8 +192,8 @@ defmodule Witness.Server.MCP do
   end
 
   # State-gated errors
-  defp dispatch("init", _args, {:active, witness}) do
-    {{:error, "Already initialized"}, {:active, witness}, []}
+  defp dispatch("init", _args, {:active, session_pid}) do
+    {{:error, "Already initialized"}, {:active, session_pid}, []}
   end
 
   defp dispatch(name, _args, :uninitialized) when name in ~w(bias query exit) do
@@ -210,14 +209,16 @@ defmodule Witness.Server.MCP do
   end
 
   # ---------------------------------------------------------------------------
-  # Query helper
+  # Event formatting
   # ---------------------------------------------------------------------------
 
-  defp query_sha(repo, sha) do
-    case repo.get(Event, sha) do
-      nil -> {:error, "Event not found: #{sha}"}
-      event -> {:ok, JSON.encode!(%{sha: event.sha, data: event.data, message: event.message, parent: event.parent})}
-    end
+  defp format_event(event) do
+    JSON.encode!(%{
+      sha: event.sha,
+      data: event.data,
+      message: event.message,
+      parent: event.parent
+    })
   end
 
   # ---------------------------------------------------------------------------
