@@ -16,13 +16,43 @@ config_schema =
     ],
     app: [
       type: :atom,
-      required: true,
+      required: false,
       doc: "The OTP application of this Witness context."
     ],
     prefix: [
       type: {:list, :atom},
-      required: true,
+      required: false,
       doc: "A list of atoms that gets prefixed to every emitted event name."
+    ],
+    parent: [
+      type: {:or, [nil, :atom]},
+      required: false,
+      default: nil,
+      doc: "Explicit parent module. When nil, parent is discovered by walking up the module tree."
+    ],
+    repos: [
+      type: {:list, :atom},
+      required: false,
+      default: [],
+      doc: "A list of `Witness.Repo` modules for persistence."
+    ],
+    domain: [
+      type: {:or, [nil, :atom]},
+      required: false,
+      default: nil,
+      doc: "The domain this witnessed module belongs to."
+    ],
+    supervise: [
+      type: :boolean,
+      required: false,
+      default: false,
+      doc: "When true, starts a ModuleActor and dynamic supervision for children."
+    ],
+    snitch: [
+      type: :boolean,
+      required: false,
+      default: false,
+      doc: "When true, emits telemetry for every function call in the module."
     ],
     extra_events: [
       type: {:list, {:list, :atom}},
