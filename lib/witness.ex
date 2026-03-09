@@ -130,6 +130,21 @@ defmodule Witness do
 
   alias __MODULE__.Source
 
+  @enforce_keys [:module, :prefix]
+  defstruct [
+    :module,
+    :prefix,
+    :parent,
+    :domain,
+    :span,
+    t0: 0,
+    repos: [],
+    supervise: false,
+    snitch: false,
+    events: [],
+    children: []
+  ]
+
   defmacro __using__(config) do
     if not Keyword.keyword?(config) do
       raise ArgumentError, "expected config to be a keyword list but got: #{Macro.to_string(config)}"
@@ -205,6 +220,22 @@ defmodule Witness do
 
   @typedoc "A module which implements this behaviour."
   @type t :: module
+
+  @typedoc "A witness struct combining compile-time config, runtime state, and actor state."
+  @type witness :: %__MODULE__{
+          module: module,
+          prefix: [atom],
+          parent: module | nil,
+          domain: atom | nil,
+          span: Witness.Span.t() | nil,
+          t0: integer,
+          repos: [module],
+          supervise: boolean,
+          snitch: boolean,
+          events: list,
+          children: list
+        }
+
   @type config :: [unquote(NimbleOptions.option_typespec(config_schema))]
 
   @type event_name :: nonempty_list(atom)
