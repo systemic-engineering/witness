@@ -1,158 +1,159 @@
 defmodule Witness.Actor do
   @moduledoc """
-  Representation of the agent calling Witness MCP tools.
+  GenServer per witnessed module + ODA cascade functions.
 
-  A Fragmentation concept: the Actor has identity, a session, and a Repo.
-  Each `bias/5` call builds an ODA cascade via `Witness.Session` and
-  persists each entry as a `Witness.Event` via `Repo.insert/1`.
-  The commit chain is linked through parent SHAs.
+  The Actor is the process that holds a live `%Witness{}` struct, registered
+  in `Witness.Registry` for lookup by module atom. It also provides `bias/5`
+  and `seal/2` for running ODA cascades against any `%Witness{}`.
 
-  ## Usage
+  ## GenServer
 
-      actor = Witness.Actor.new(name: "reed", email: "reed@systemic.engineer", repo: MyRepo)
-      {actor, %{obs_sha: sha}} = Witness.Actor.bias(actor, "@signal", obs, nil, nil)
-      {actor, root_sha} = Witness.Actor.seal(actor, "@exit")
+      {:ok, pid} = Witness.Actor.start_link(MyApp.Context)
+      witness = GenServer.call(pid, :__witness__)
+
+  ## ODA
+
+      witness = %Witness{identity: identity, session: session, repos: [repo], ...}
+      {witness, %{obs_sha: sha}} = Witness.Actor.bias(witness, "@signal", obs, nil, nil)
+      {witness, root_sha} = Witness.Actor.seal(witness, "@exit")
   """
+
+  use GenServer
 
   alias Witness.Event
   alias Witness.Session
   alias Witness.Session.Ref
 
-  @enforce_keys [:name, :repo]
-  defstruct [:name, :email, :repo, :session, :head]
+  # ---------------------------------------------------------------------------
+  # GenServer
+  # ---------------------------------------------------------------------------
 
-  @type t :: %__MODULE__{
-          name: String.t(),
-          email: String.t() | nil,
-          repo: module(),
-          session: Session.t(),
-          head: String.t() | nil
-        }
-
-  @spec new(keyword()) :: t()
-  def new(opts) do
-    name = Keyword.fetch!(opts, :name)
-    email = Keyword.get(opts, :email, "#{name}@witness")
-    repo = Keyword.fetch!(opts, :repo)
-    session = Session.new(%{author: email, name: name})
-
-    %__MODULE__{
-      name: name,
-      email: email,
-      repo: repo,
-      session: session,
-      head: nil
-    }
+  @doc "Start and register an Actor for the given witnessed module."
+  def start_link(module) do
+    GenServer.start_link(__MODULE__, module, name: {:via, Registry, {Witness.Registry, module}})
   end
 
-  @spec identity(t()) :: %{name: String.t(), email: String.t()}
-  def identity(%__MODULE__{name: name, email: email}) do
-    %{name: name, email: email}
+  @impl true
+  def init(module) do
+    witness = Witness.start(module)
+    {:ok, witness}
   end
+
+  @impl true
+  def handle_call(:__witness__, _from, witness) do
+    {:reply, witness, witness}
+  end
+
+  # ---------------------------------------------------------------------------
+  # ODA — bias/5 and seal/2 operate on %Witness{}
+  # ---------------------------------------------------------------------------
 
   @doc """
   Run an ODA cascade and persist each entry as a commit.
 
-  Returns `{updated_actor, result}` where result is a map of SHAs
+  Returns `{updated_witness, result}` where result is a map of SHAs
   or `{:error, reason}`.
   """
-  @spec bias(t(), String.t(), map(), map() | nil, map() | nil) ::
-          {t(), map() | {:error, String.t()}}
-  def bias(%__MODULE__{} = actor, annotation, observation, decision, action) do
+  @spec bias(Witness.witness(), String.t(), map(), map() | nil, map() | nil) ::
+          {Witness.witness(), map() | {:error, String.t()}}
+  def bias(%Witness{} = witness, annotation, observation, decision, action) do
     if action && !decision do
-      {actor, {:error, "Action requires a decision"}}
+      {witness, {:error, "Action requires a decision"}}
     else
-      do_bias(actor, annotation, observation, decision, action)
+      do_bias(witness, annotation, observation, decision, action)
     end
   end
 
   @doc """
   Seal the session with a closing commit.
 
-  Returns `{updated_actor, root_sha}`.
+  Returns `{updated_witness, root_sha}`.
   """
-  @spec seal(t(), String.t()) :: {t(), String.t()}
-  def seal(%__MODULE__{} = actor, annotation) do
+  @spec seal(Witness.witness(), String.t()) :: {Witness.witness(), String.t()}
+  def seal(%Witness{} = witness, annotation) do
     obs_shas =
-      actor.session.store
+      witness.session.store
       |> Enum.filter(fn {_sha, entry} -> entry.kind == :obs end)
       |> Enum.map(fn {sha, _entry} -> sha end)
 
-    {session, _entry, root_sha} = Session.commit(actor.session, annotation, obs_shas)
+    {session, _entry, root_sha} = Session.commit(witness.session, annotation, obs_shas)
 
-    root_data = JSON.encode!(%{kind: :root, name: actor.name, observation_shas: obs_shas})
-    persist(actor, root_sha, root_data, annotation)
+    identity_name = if witness.identity, do: witness.identity.name, else: "anonymous"
+    root_data = JSON.encode!(%{kind: :root, name: identity_name, observation_shas: obs_shas})
+    persist(witness, root_sha, root_data, annotation)
 
-    actor = %{actor | session: Session.new(Session.config(session)), head: root_sha}
-    {actor, root_sha}
+    witness = %{witness | session: Session.new(Session.config(session)), head: root_sha}
+    {witness, root_sha}
   end
 
   # ---------------------------------------------------------------------------
   # Private — ODA cascade + persistence
   # ---------------------------------------------------------------------------
 
-  defp do_bias(actor, annotation, observation, decision, action) do
+  defp do_bias(witness, annotation, observation, decision, action) do
     obs_ref = Map.get(observation, "ref", "")
     obs_payload = Map.get(observation, "payload", "")
 
     # Bottom-up: act → decide → observe
-    {actor, act_sha, act_shas} = maybe_act(actor, annotation, action)
-    {actor, dec_sha, dec_shas} = maybe_decide(actor, annotation, obs_ref, obs_payload, decision, act_shas)
-    {actor, obs_sha} = do_observe(actor, annotation, obs_ref, obs_payload, dec_shas)
+    {witness, act_sha, act_shas} = maybe_act(witness, annotation, action)
+    {witness, dec_sha, dec_shas} = maybe_decide(witness, annotation, obs_ref, obs_payload, decision, act_shas)
+    {witness, obs_sha} = do_observe(witness, annotation, obs_ref, obs_payload, dec_shas)
 
     result =
       %{obs_sha: obs_sha}
       |> maybe_put(:dec_sha, dec_sha)
       |> maybe_put(:act_sha, act_sha)
 
-    {actor, result}
+    {witness, result}
   end
 
-  defp maybe_act(actor, _annotation, nil), do: {actor, nil, []}
+  defp maybe_act(witness, _annotation, nil), do: {witness, nil, []}
 
-  defp maybe_act(actor, annotation, %{"payload" => payload} = action) do
+  defp maybe_act(witness, annotation, %{"payload" => payload} = action) do
     act_ann = Map.get(action, "annotation", annotation)
-    {session, ref} = Session.act(actor.session, act_ann, payload)
+    {session, ref} = Session.act(witness.session, act_ann, payload)
     sha = Ref.sha(ref)
 
     data = JSON.encode!(%{kind: :act, payload: payload, annotation: act_ann})
-    actor = %{actor | session: session}
-    persist(actor, sha, data, act_ann)
+    witness = %{witness | session: session}
+    persist(witness, sha, data, act_ann)
 
-    {%{actor | head: sha}, sha, [sha]}
+    {%{witness | head: sha}, sha, [sha]}
   end
 
-  defp maybe_decide(actor, _annotation, _obs_ref, _obs_payload, nil, _act_shas),
-    do: {actor, nil, []}
+  defp maybe_decide(witness, _annotation, _obs_ref, _obs_payload, nil, _act_shas),
+    do: {witness, nil, []}
 
-  defp maybe_decide(actor, annotation, obs_ref, obs_payload, %{"payload" => payload} = decision, act_shas) do
+  defp maybe_decide(witness, annotation, obs_ref, obs_payload, %{"payload" => payload} = decision, act_shas) do
     dec_ann = Map.get(decision, "annotation", annotation)
     obs_placeholder = Ref.obs(:bias.hash(obs_ref <> obs_payload))
-    {session, ref} = Session.decide(actor.session, dec_ann, obs_placeholder, payload, act_shas)
+    {session, ref} = Session.decide(witness.session, dec_ann, obs_placeholder, payload, act_shas)
     sha = Ref.sha(ref)
 
     data = JSON.encode!(%{kind: :dec, payload: payload, annotation: dec_ann, act_shas: act_shas})
-    actor = %{actor | session: session}
-    persist(actor, sha, data, dec_ann)
+    witness = %{witness | session: session}
+    persist(witness, sha, data, dec_ann)
 
-    {%{actor | head: sha}, sha, [sha]}
+    {%{witness | head: sha}, sha, [sha]}
   end
 
-  defp do_observe(actor, annotation, obs_ref, obs_payload, dec_shas) do
-    {session, ref} = Session.observe(actor.session, annotation, obs_ref, obs_payload, dec_shas)
+  defp do_observe(witness, annotation, obs_ref, obs_payload, dec_shas) do
+    {session, ref} = Session.observe(witness.session, annotation, obs_ref, obs_payload, dec_shas)
     sha = Ref.sha(ref)
 
     data = JSON.encode!(%{kind: :obs, ref: obs_ref, payload: obs_payload, annotation: annotation, dec_shas: dec_shas})
-    actor = %{actor | session: session}
-    persist(actor, sha, data, annotation)
+    witness = %{witness | session: session}
+    persist(witness, sha, data, annotation)
 
-    {%{actor | head: sha}, sha}
+    {%{witness | head: sha}, sha}
   end
 
-  defp persist(%__MODULE__{repo: repo, head: parent}, sha, data, message) do
+  defp persist(%Witness{repos: [repo | _], head: parent}, sha, data, message) do
     event = %Event{sha: sha, data: data, message: message, parent: parent}
     repo.insert(event)
   end
+
+  defp persist(%Witness{repos: []}, _sha, _data, _message), do: :ok
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

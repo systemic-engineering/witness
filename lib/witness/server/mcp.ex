@@ -29,6 +29,7 @@ defmodule Witness.Server.MCP do
 
   alias Witness.Actor
   alias Witness.Event
+  alias Witness.Session
 
   @server_info %{name: "witness-mcp", version: "0.3.0"}
   @protocol_version "2024-11-05"
@@ -124,56 +125,67 @@ defmodule Witness.Server.MCP do
     name = Map.get(args, "name", "anonymous")
     email = Map.get(args, "email", "#{name}@witness")
 
-    actor = Actor.new(name: name, email: email, repo: Witness.InMemory)
-    identity = Actor.identity(actor)
+    identity = %Witness.Actor.Identity{name: name, email: email}
 
-    obs = %{"ref" => "init", "payload" => JSON.encode!(identity)}
-    {actor, %{obs_sha: obs_sha}} = Actor.bias(actor, "@init", obs, nil, nil)
+    witness = %Witness{
+      module: __MODULE__,
+      prefix: [:mcp, :session],
+      identity: identity,
+      session: Session.new(%{author: email, name: name}),
+      repos: [Witness.InMemory],
+      head: nil
+    }
 
-    result = {:ok, JSON.encode!(Map.put(identity, :obs_sha, obs_sha))}
-    {{:active, actor}, notifications} = transition({:active, actor})
-    {result, {:active, actor}, notifications}
+    identity_map = %{name: name, email: email}
+    obs = %{"ref" => "init", "payload" => JSON.encode!(identity_map)}
+    {witness, %{obs_sha: obs_sha}} = Actor.bias(witness, "@init", obs, nil, nil)
+
+    result = {:ok, JSON.encode!(Map.put(identity_map, :obs_sha, obs_sha))}
+    {{:active, witness}, notifications} = transition({:active, witness})
+    {result, {:active, witness}, notifications}
   end
 
-  defp dispatch("bias", args, {:active, actor}) do
+  defp dispatch("bias", args, {:active, witness}) do
     annotation = Map.get(args, "annotation", "@signal")
     observation = Map.get(args, "observation", %{})
     decision = Map.get(args, "decision")
     action = Map.get(args, "action")
 
-    {actor, result} = Actor.bias(actor, annotation, observation, decision, action)
+    {witness, result} = Actor.bias(witness, annotation, observation, decision, action)
 
     case result do
       {:error, reason} ->
-        {{:error, reason}, {:active, actor}, []}
+        {{:error, reason}, {:active, witness}, []}
 
       shas ->
-        {{:ok, JSON.encode!(shas)}, {:active, actor}, []}
+        {{:ok, JSON.encode!(shas)}, {:active, witness}, []}
     end
   end
 
-  defp dispatch("query", args, {:active, actor}) do
+  defp dispatch("query", args, {:active, witness}) do
+    [repo | _] = witness.repos
+
     result =
       cond do
         Map.get(args, "head") ->
-          case actor.head do
+          case witness.head do
             nil -> {:error, "No commits yet"}
-            sha -> query_sha(actor, sha)
+            sha -> query_sha(repo, sha)
           end
 
         sha = Map.get(args, "sha") ->
-          query_sha(actor, sha)
+          query_sha(repo, sha)
 
         true ->
           {:error, "Provide sha or head:true"}
       end
 
-    {result, {:active, actor}, []}
+    {result, {:active, witness}, []}
   end
 
-  defp dispatch("exit", args, {:active, actor}) do
+  defp dispatch("exit", args, {:active, witness}) do
     annotation = Map.get(args, "annotation", "@exit")
-    {_actor, root_sha} = Actor.seal(actor, annotation)
+    {_witness, root_sha} = Actor.seal(witness, annotation)
 
     result = {:ok, JSON.encode!(%{root_sha: root_sha})}
     {:uninitialized, notifications} = transition(:uninitialized)
@@ -181,8 +193,8 @@ defmodule Witness.Server.MCP do
   end
 
   # State-gated errors
-  defp dispatch("init", _args, {:active, actor}) do
-    {{:error, "Already initialized"}, {:active, actor}, []}
+  defp dispatch("init", _args, {:active, witness}) do
+    {{:error, "Already initialized"}, {:active, witness}, []}
   end
 
   defp dispatch(name, _args, :uninitialized) when name in ~w(bias query exit) do
@@ -201,8 +213,8 @@ defmodule Witness.Server.MCP do
   # Query helper
   # ---------------------------------------------------------------------------
 
-  defp query_sha(actor, sha) do
-    case actor.repo.get(Event, sha) do
+  defp query_sha(repo, sha) do
+    case repo.get(Event, sha) do
       nil -> {:error, "Event not found: #{sha}"}
       event -> {:ok, JSON.encode!(%{sha: event.sha, data: event.data, message: event.message, parent: event.parent})}
     end

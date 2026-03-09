@@ -3,7 +3,7 @@ defmodule Witness.Registry do
   Module-to-PID registry for witnessed modules.
 
   Thin wrapper around Elixir's `Registry` with `:unique` keys,
-  mapping module atoms to their `Witness.ModuleActor` PIDs.
+  mapping module atoms to their `Witness.Actor` PIDs.
   """
 
   def child_spec(_) do

@@ -46,7 +46,7 @@ config_schema =
       type: :boolean,
       required: false,
       default: false,
-      doc: "When true, starts a ModuleActor and dynamic supervision for children."
+      doc: "When true, starts a Witness.Actor and dynamic supervision for children."
     ],
     snitch: [
       type: :boolean,
@@ -167,6 +167,9 @@ defmodule Witness do
     :parent,
     :domain,
     :span,
+    :identity,
+    :session,
+    :head,
     t0: 0,
     repos: [],
     supervise: false,
@@ -283,6 +286,9 @@ defmodule Witness do
           parent: module | nil,
           domain: atom | nil,
           span: Witness.Span.t() | nil,
+          identity: Witness.Actor.Identity.t() | nil,
+          session: Witness.Session.t() | nil,
+          head: String.t() | nil,
           t0: integer,
           repos: [module],
           supervise: boolean,
