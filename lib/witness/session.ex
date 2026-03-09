@@ -122,6 +122,15 @@ defmodule Witness.Session do
     GenServer.call(pid, {:seal, annotation})
   end
 
+  @doc """
+  Query an event by SHA or `:head`.
+
+  Returns `{:ok, event}` or `{:error, reason}`.
+  """
+  def query(pid, sha_or_head) do
+    GenServer.call(pid, {:query, sha_or_head})
+  end
+
   # ---------------------------------------------------------------------------
   # GenServer callbacks
   # ---------------------------------------------------------------------------
@@ -181,6 +190,18 @@ defmodule Witness.Session do
   def handle_call({:seal, annotation}, _from, state) do
     {oda, head, root_sha} = do_seal(state.oda, state.repos, state.head, annotation)
     {:reply, {:ok, root_sha}, %{state | oda: oda, head: head}}
+  end
+
+  def handle_call({:query, :head}, _from, %{head: nil} = state) do
+    {:reply, {:error, "No commits yet"}, state}
+  end
+
+  def handle_call({:query, :head}, _from, %{head: head} = state) do
+    {:reply, do_query(state.repos, head), state}
+  end
+
+  def handle_call({:query, sha}, _from, state) when is_binary(sha) do
+    {:reply, do_query(state.repos, sha), state}
   end
 
   @impl true
@@ -332,6 +353,15 @@ defmodule Witness.Session do
   end
 
   defp persist([], _parent, _sha, _data, _message), do: :ok
+
+  defp do_query([repo | _], sha) do
+    case repo.get(Event, sha) do
+      nil -> {:error, "Event not found: #{sha}"}
+      event -> {:ok, event}
+    end
+  end
+
+  defp do_query([], _sha), do: {:error, "No repos configured"}
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
