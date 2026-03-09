@@ -25,12 +25,33 @@ defmodule Witness.StructTest do
       assert witness.parent == nil
       assert witness.domain == nil
       assert witness.span == nil
+      assert witness.identity == nil
+      assert witness.session == nil
+      assert witness.head == nil
       assert witness.t0 == 0
       assert witness.repos == []
       assert witness.supervise == false
       assert witness.snitch == false
       assert witness.events == []
       assert witness.children == []
+    end
+
+    test "can hold an identity and session" do
+      identity = %Witness.Actor.Identity{name: "reed", email: "reed@systemic.engineer"}
+      session = Witness.Session.new(%{author: "reed@systemic.engineer", name: "reed"})
+
+      witness = %Witness{
+        module: MyApp,
+        prefix: [:test],
+        identity: identity,
+        session: session,
+        head: "abc123"
+      }
+
+      assert witness.identity == identity
+      assert witness.identity.name == "reed"
+      assert %Witness.Session{} = witness.session
+      assert witness.head == "abc123"
     end
 
     test "is a map (backward compatible with map access)" do
