@@ -11,6 +11,20 @@ defmodule Witness.ClusterTest do
     end
   end
 
+  describe "primary_node_name/2" do
+    test "returns node_name when WITNESS_NODE is not set" do
+      System.delete_env("WITNESS_NODE")
+      assert Witness.Cluster.primary_node_name(:glue, "myhost") == :"glue@myhost"
+    end
+
+    test "returns the override atom when WITNESS_NODE is set" do
+      System.put_env("WITNESS_NODE", "production-glue@prod-host")
+      assert Witness.Cluster.primary_node_name(:glue, "myhost") == :"production-glue@prod-host"
+    after
+      System.delete_env("WITNESS_NODE")
+    end
+  end
+
   describe "satellite_node_name/4" do
     test "embeds app, pwd, uuid, and hostname" do
       name = Witness.Cluster.satellite_node_name(:glue, "/Users/alex/dev/projects/glue", "abc123", "myhost")
