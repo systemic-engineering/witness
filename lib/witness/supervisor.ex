@@ -64,23 +64,22 @@ defmodule Witness.Supervisor do
         module -> {module, context}
       end)
 
-    maybe_add_store_handler(handlers, context)
+    maybe_add_repo_handler(handlers, context)
   end
 
-  defp maybe_add_store_handler(handlers, context) do
-    already_has_store? =
-      Enum.any?(handlers, fn {module, _} -> module == Witness.Handler.Store end)
+  defp maybe_add_repo_handler(handlers, context) do
+    already_has_repo? =
+      Enum.any?(handlers, fn {module, _} -> module == Witness.Handler.Repo end)
 
-    case {already_has_store?, Witness.config(context, :store)} do
+    case {already_has_repo?, Witness.config(context, :repo)} do
       {true, _} ->
         handlers
 
-      {false, {store_module, store_opts}} ->
-        store_config = Keyword.put(store_opts, :context, context)
-        handlers ++ [{Witness.Handler.Store, {store_module, store_config}}]
-
-      {false, _} ->
+      {false, nil} ->
         handlers
+
+      {false, repo} when is_atom(repo) ->
+        handlers ++ [{Witness.Handler.Repo, {repo, context}}]
     end
   end
 

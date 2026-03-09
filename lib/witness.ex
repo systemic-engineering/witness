@@ -40,12 +40,12 @@ config_schema =
       doc:
         "A list of `Witness.Source`s which belong to this context; when `nil` they are determined at runtime (through `:application.get_env(<app>, :modules)`)"
     ],
-    store: [
-      type: {:or, [nil, {:tuple, [:atom, :any]}]},
+    repo: [
+      type: {:or, [nil, :atom]},
       required: false,
       default: nil,
       doc:
-        "An optional `Witness.Store` backend for persisting events. Expects a `{module, config}` tuple where the module implements `Witness.Store`, or `nil` to disable persistence."
+        "A `Witness.Repo` module for persisting events as content-addressed commits. When set, a `Witness.Handler.Repo` is automatically added to the handler list."
     ]
   ]
   # Merge defaults into schema for proper documentation generation

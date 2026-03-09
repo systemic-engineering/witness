@@ -2,9 +2,14 @@ defmodule Witness.Server.MCP do
   @moduledoc """
   MCP server for Witness observability.
 
-  Exposes the local Witness event store and ODA session over the Model Context
-  Protocol (MCP) 2024-11-05 via JSON-RPC 2.0 over stdio. AI agents can observe,
-  decide, act, and query telemetry — all content-addressed.
+  State machine driven by `Witness.Actor`. The tool surface changes based on
+  session lifecycle:
+
+    - `:uninitialized` → tools = [`init`]
+    - `{:active, actor}` → tools = [`bias`, `query`, `exit`]
+
+  Transitions emit `notifications/tools/list_changed` so the client discovers
+  the new surface.
 
   ## Usage
 
@@ -15,23 +20,17 @@ defmodule Witness.Server.MCP do
 
   ## Supported methods
 
-    - `initialize`                — capability negotiation + session creation
+    - `initialize`                — capability negotiation
     - `notifications/initialized` — client ready (no-op)
-    - `tools/list`                — list available tools
-    - `tools/call`                — call a tool
+    - `tools/list`                — list available tools (state-dependent)
+    - `tools/call`                — call a tool (state-gated)
     - `ping`                      — liveness check
-
-  ## Tools
-
-    - `bias`        — ODA cascade (observe, optionally decide, optionally act)
-    - `commit`      — seal session, wrap observations into root
-    - `list_events` — query telemetry events from Mnesia store
   """
 
-  alias Witness.Session
-  alias Witness.Session.Ref
+  alias Witness.Actor
+  alias Witness.Event
 
-  @server_info %{name: "witness-mcp", version: "0.2.0"}
+  @server_info %{name: "witness-mcp", version: "0.3.0"}
   @protocol_version "2024-11-05"
 
   @parse_error -32_700
@@ -44,14 +43,14 @@ defmodule Witness.Server.MCP do
   """
   @spec run(IO.device()) :: :ok
   def run(io_device) do
-    loop(io_device, nil)
+    loop(io_device, :uninitialized)
   end
 
   # ---------------------------------------------------------------------------
-  # Loop — threads session state
+  # Loop — threads state machine
   # ---------------------------------------------------------------------------
 
-  defp loop(io_device, session) do
+  defp loop(io_device, state) do
     case IO.read(io_device, :line) do
       :eof ->
         :ok
@@ -60,19 +59,19 @@ defmodule Witness.Server.MCP do
         :ok
 
       line when is_binary(line) ->
-        {response, session} = handle_line(String.trim(line), session)
-        if response, do: IO.write(io_device, response)
-        loop(io_device, session)
+        {responses, state} = handle_line(String.trim(line), state)
+        for response <- List.wrap(responses), do: IO.write(io_device, response)
+        loop(io_device, state)
     end
   end
 
-  defp handle_line("", session), do: {nil, session}
+  defp handle_line("", state), do: {nil, state}
 
-  defp handle_line(line, session) do
+  defp handle_line(line, state) do
     case JSON.decode(line) do
-      {:ok, %{"id" => _} = msg} -> handle_request(msg, session)
-      {:ok, _msg} -> {nil, session}
-      {:error, _} -> {encode_error(nil, @parse_error, "Parse error"), session}
+      {:ok, %{"id" => _} = msg} -> handle_request(msg, state)
+      {:ok, _msg} -> {nil, state}
+      {:error, _} -> {encode_error(nil, @parse_error, "Parse error"), state}
     end
   end
 
@@ -80,13 +79,7 @@ defmodule Witness.Server.MCP do
   # Request dispatch
   # ---------------------------------------------------------------------------
 
-  defp handle_request(%{"method" => "initialize", "id" => id} = msg, _session) do
-    params = Map.get(msg, "params", %{})
-    client_info = Map.get(params, "clientInfo", %{})
-    name = Map.get(client_info, "name", "witness-mcp")
-
-    session = Session.new(%{author: name, name: name})
-
+  defp handle_request(%{"method" => "initialize", "id" => id}, state) do
     response =
       encode_result(id, %{
         protocolVersion: @protocol_version,
@@ -94,259 +87,226 @@ defmodule Witness.Server.MCP do
         serverInfo: @server_info
       })
 
-    {response, session}
+    {response, state}
   end
 
-  defp handle_request(%{"method" => "tools/list", "id" => id}, session) do
-    {encode_result(id, %{tools: tools()}), session}
+  defp handle_request(%{"method" => "tools/list", "id" => id}, state) do
+    {encode_result(id, %{tools: tools_for(state)}), state}
   end
 
-  defp handle_request(%{"method" => "tools/call", "id" => id} = msg, session) do
+  defp handle_request(%{"method" => "tools/call", "id" => id} = msg, state) do
     params = Map.get(msg, "params", %{})
     name = Map.get(params, "name")
     args = Map.get(params, "arguments", %{})
 
-    {result, session} = dispatch(name, args, session)
-    {encode_result(id, tool_result(result)), session}
+    {result, state, notifications} = dispatch(name, args, state)
+    responses = notifications ++ [encode_result(id, tool_result(result))]
+    {responses, state}
   end
 
-  defp handle_request(%{"method" => "ping", "id" => id}, session) do
-    {encode_result(id, %{}), session}
+  defp handle_request(%{"method" => "ping", "id" => id}, state) do
+    {encode_result(id, %{}), state}
   end
 
-  defp handle_request(%{"method" => method, "id" => id}, session) do
-    {encode_error(id, @method_not_found, "Method not found: #{method}"), session}
+  defp handle_request(%{"method" => method, "id" => id}, state) do
+    {encode_error(id, @method_not_found, "Method not found: #{method}"), state}
   end
 
-  defp handle_request(%{"id" => id}, session) do
-    {encode_error(id, @invalid_request, "Missing method"), session}
-  end
-
-  # ---------------------------------------------------------------------------
-  # Tool dispatch
-  # ---------------------------------------------------------------------------
-
-  defp dispatch("bias", args, session) do
-    session = session || Session.new(%{author: "unknown", name: "witness-mcp"})
-    dispatch_bias(args, session)
-  end
-
-  defp dispatch("commit", args, session) do
-    session = session || Session.new(%{author: "unknown", name: "witness-mcp"})
-    dispatch_commit(args, session)
-  end
-
-  defp dispatch("list_events", args, session) do
-    opts = build_query_opts(args)
-
-    result =
-      case Witness.Store.Mnesia.list_events(Witness.Server, opts, []) do
-        {:ok, events} -> format_events(events)
-        {:error, reason} -> {:error, "Store error: #{inspect(reason)}"}
-      end
-
-    {result, session}
-  end
-
-  defp dispatch(name, _args, session) when is_binary(name) do
-    {{:error, "Unknown tool: #{name}"}, session}
-  end
-
-  defp dispatch(nil, _args, session) do
-    {{:error, "Missing tool name"}, session}
+  defp handle_request(%{"id" => id}, state) do
+    {encode_error(id, @invalid_request, "Missing method"), state}
   end
 
   # ---------------------------------------------------------------------------
-  # Bias — single ODA call, cascading constraint
+  # Tool dispatch — state-gated
   # ---------------------------------------------------------------------------
 
-  defp dispatch_bias(args, session) do
+  defp dispatch("init", args, :uninitialized) do
+    name = Map.get(args, "name", "anonymous")
+    email = Map.get(args, "email", "#{name}@witness")
+
+    actor = Actor.new(name: name, email: email, repo: Witness.DefaultRepo)
+    identity = Actor.identity(actor)
+
+    obs = %{"ref" => "init", "payload" => JSON.encode!(identity)}
+    {actor, %{obs_sha: obs_sha}} = Actor.bias(actor, "@init", obs, nil, nil)
+
+    result = {:ok, JSON.encode!(Map.put(identity, :obs_sha, obs_sha))}
+    {{:active, actor}, notifications} = transition({:active, actor})
+    {result, {:active, actor}, notifications}
+  end
+
+  defp dispatch("bias", args, {:active, actor}) do
     annotation = Map.get(args, "annotation", "@signal")
     observation = Map.get(args, "observation", %{})
     decision = Map.get(args, "decision")
     action = Map.get(args, "action")
 
-    obs_ref = Map.get(observation, "ref", "")
-    obs_payload = Map.get(observation, "payload", "")
+    {actor, result} = Actor.bias(actor, annotation, observation, decision, action)
 
-    # Cascade constraint: action requires decision
-    if action && !decision do
-      {{:error, "Action requires a decision. Provide decision before action."}, session}
-    else
-      # Bottom-up: act → decide → observe
-      {session, result} = build_oda(session, annotation, obs_ref, obs_payload, decision, action)
-      {{:ok, JSON.encode!(result)}, session}
+    case result do
+      {:error, reason} ->
+        {{:error, reason}, {:active, actor}, []}
+
+      shas ->
+        {{:ok, JSON.encode!(shas)}, {:active, actor}, []}
     end
   end
 
-  defp build_oda(session, annotation, obs_ref, obs_payload, decision, action) do
-    # Act (if present)
-    {session, act_sha, act_shas} =
-      case action do
-        %{"payload" => payload} ->
-          act_ann = Map.get(action, "annotation", annotation)
-          {s, ref} = Session.act(session, act_ann, payload)
-          {s, Ref.sha(ref), [Ref.sha(ref)]}
-
-        _ ->
-          {session, nil, []}
-      end
-
-    # Decide (if present)
-    {session, dec_sha, dec_shas} =
-      case decision do
-        %{"payload" => payload} ->
-          dec_ann = Map.get(decision, "annotation", annotation)
-          # Decision links to a placeholder obs ref — the observation is built after
-          obs_placeholder = Ref.obs(:bias.hash(obs_ref <> obs_payload))
-          {s, ref} = Session.decide(session, dec_ann, obs_placeholder, payload, act_shas)
-          {s, Ref.sha(ref), [Ref.sha(ref)]}
-
-        _ ->
-          {session, nil, []}
-      end
-
-    # Observe (always)
-    {session, obs_ref_result} = Session.observe(session, annotation, obs_ref, obs_payload, dec_shas)
-    obs_sha = Ref.sha(obs_ref_result)
-
+  defp dispatch("query", args, {:active, actor}) do
     result =
-      %{obs_sha: obs_sha}
-      |> maybe_add(:dec_sha, dec_sha)
-      |> maybe_add(:act_sha, act_sha)
+      cond do
+        Map.get(args, "head") ->
+          case actor.head do
+            nil -> {:error, "No commits yet"}
+            sha -> query_sha(actor, sha)
+          end
 
-    {session, result}
+        sha = Map.get(args, "sha") ->
+          query_sha(actor, sha)
+
+        true ->
+          {:error, "Provide sha or head:true"}
+      end
+
+    {result, {:active, actor}, []}
   end
 
-  defp maybe_add(map, _key, nil), do: map
-  defp maybe_add(map, key, value), do: Map.put(map, key, value)
+  defp dispatch("exit", args, {:active, actor}) do
+    annotation = Map.get(args, "annotation", "@exit")
+    {_actor, root_sha} = Actor.seal(actor, annotation)
 
-  # ---------------------------------------------------------------------------
-  # Commit — seal session
-  # ---------------------------------------------------------------------------
+    result = {:ok, JSON.encode!(%{root_sha: root_sha})}
+    {:uninitialized, notifications} = transition(:uninitialized)
+    {result, :uninitialized, notifications}
+  end
 
-  defp dispatch_commit(args, session) do
-    annotation = Map.get(args, "annotation", "@commit")
+  # State-gated errors
+  defp dispatch("init", _args, {:active, actor}) do
+    {{:error, "Already initialized"}, {:active, actor}, []}
+  end
 
-    {session, _root, root_sha} = Session.commit(session, annotation, [])
+  defp dispatch(name, _args, :uninitialized) when name in ~w(bias query exit) do
+    {{:error, "Not initialized. Call init first."}, :uninitialized, []}
+  end
 
-    # Reset session after commit (fresh state, same config)
-    new_session = Session.new(Session.config(session))
+  defp dispatch(name, _args, state) when is_binary(name) do
+    {{:error, "Unknown tool: #{name}"}, state, []}
+  end
 
-    {{:ok, JSON.encode!(%{root_sha: root_sha})}, new_session}
+  defp dispatch(nil, _args, state) do
+    {{:error, "Missing tool name"}, state, []}
   end
 
   # ---------------------------------------------------------------------------
-  # Query helpers
+  # Query helper
   # ---------------------------------------------------------------------------
 
-  defp build_query_opts(args) do
-    []
-    |> maybe_put(:limit, Map.get(args, "limit"))
-    |> maybe_put(:after, Map.get(args, "after"))
-    |> maybe_put(:before, Map.get(args, "before"))
-    |> maybe_put(:event_name, parse_event_name(Map.get(args, "event_name")))
-  end
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
-
-  defp parse_event_name(nil), do: nil
-  defp parse_event_name(parts) when is_list(parts), do: Enum.map(parts, &String.to_atom/1)
-  defp parse_event_name(name) when is_binary(name), do: [String.to_atom(name)]
-
-  defp format_events(events) do
-    lines =
-      Enum.map(events, fn event ->
-        name = Enum.join(event.event_name, ".")
-        attrs = inspect(event.attributes, limit: 5)
-        "#{name} | #{attrs}"
-      end)
-
-    case lines do
-      [] -> {:ok, "No events recorded."}
-      _ -> {:ok, Enum.join(lines, "\n")}
+  defp query_sha(actor, sha) do
+    case actor.repo.get(Event, sha) do
+      nil -> {:error, "Event not found: #{sha}"}
+      event -> {:ok, JSON.encode!(%{sha: event.sha, data: event.data, message: event.message, parent: event.parent})}
     end
   end
 
   # ---------------------------------------------------------------------------
-  # Tool definitions
+  # State transitions — emit notifications
   # ---------------------------------------------------------------------------
 
-  defp tools do
-    [
-      %{
-        name: "bias",
-        description:
-          "Observation filtered through subjectivity, made structural. Observe first. Decide from observation. Act from decision.",
-        inputSchema: %{
-          type: "object",
-          properties: %{
-            annotation: %{type: "string", description: "Signal kind. What drain filters on."},
-            observation: %{
-              type: "object",
-              properties: %{
-                ref: %{type: "string", description: "Where you observed it."},
-                payload: %{type: "string", description: "What you observed."}
-              },
-              required: ["ref", "payload"]
+  defp transition(new_state) do
+    {new_state, [tools_changed_notification()]}
+  end
+
+  defp tools_changed_notification do
+    JSON.encode!(%{jsonrpc: "2.0", method: "notifications/tools/list_changed"}) <> "\n"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Tool definitions — state-dependent
+  # ---------------------------------------------------------------------------
+
+  defp tools_for(:uninitialized), do: [init_tool()]
+  defp tools_for({:active, _}), do: [bias_tool(), query_tool(), exit_tool()]
+
+  defp init_tool do
+    %{
+      name: "init",
+      description: "Initialize the Witness session. Establishes actor identity.",
+      inputSchema: %{
+        type: "object",
+        properties: %{
+          name: %{type: "string", description: "Actor name."},
+          email: %{type: "string", description: "Actor email."}
+        },
+        required: ["name"]
+      }
+    }
+  end
+
+  defp bias_tool do
+    %{
+      name: "bias",
+      description:
+        "Observation filtered through subjectivity, made structural. Observe first. Decide from observation. Act from decision.",
+      inputSchema: %{
+        type: "object",
+        properties: %{
+          annotation: %{type: "string", description: "Signal kind. What drain filters on."},
+          observation: %{
+            type: "object",
+            properties: %{
+              ref: %{type: "string", description: "Where you observed it."},
+              payload: %{type: "string", description: "What you observed."}
             },
-            decision: %{
-              type: "object",
-              properties: %{
-                annotation: %{type: "string", description: "Signal kind for the decision."},
-                payload: %{type: "string", description: "What you concluded from observation."}
-              },
-              required: ["payload"]
-            },
-            action: %{
-              type: "object",
-              properties: %{
-                annotation: %{type: "string", description: "Signal kind for the action."},
-                payload: %{type: "string", description: "The action taken."}
-              },
-              required: ["payload"]
-            }
+            required: ["ref", "payload"]
           },
-          required: ["annotation", "observation"]
-        }
-      },
-      %{
-        name: "commit",
-        description: "Seal the session. Wraps observations into root entry.",
-        inputSchema: %{
-          type: "object",
-          properties: %{
-            annotation: %{type: "string", description: "Signal kind for the commit."}
-          },
-          required: ["annotation"]
-        }
-      },
-      %{
-        name: "list_events",
-        description: "List telemetry events recorded by Witness. Returns event names and attributes.",
-        inputSchema: %{
-          type: "object",
-          properties: %{
-            limit: %{type: "integer", description: "Max events to return (default: all)"},
-            after: %{
-              type: "integer",
-              description: "Only events after this timestamp (microseconds)"
+          decision: %{
+            type: "object",
+            properties: %{
+              annotation: %{type: "string", description: "Signal kind for the decision."},
+              payload: %{type: "string", description: "What you concluded from observation."}
             },
-            before: %{
-              type: "integer",
-              description: "Only events before this timestamp (microseconds)"
-            },
-            event_name: %{
-              type: "array",
-              items: %{type: "string"},
-              description: "Filter by event name parts (e.g. [\"glue\", \"dispatch\", \"start\"])"
-            }
+            required: ["payload"]
           },
-          required: []
+          action: %{
+            type: "object",
+            properties: %{
+              annotation: %{type: "string", description: "Signal kind for the action."},
+              payload: %{type: "string", description: "The action taken."}
+            },
+            required: ["payload"]
+          }
+        },
+        required: ["annotation", "observation"]
+      }
+    }
+  end
+
+  defp query_tool do
+    %{
+      name: "query",
+      description: "Query a commit by SHA, or get the current head.",
+      inputSchema: %{
+        type: "object",
+        properties: %{
+          sha: %{type: "string", description: "Commit SHA to look up."},
+          head: %{type: "boolean", description: "If true, return the current head commit."}
         }
       }
-    ]
+    }
+  end
+
+  defp exit_tool do
+    %{
+      name: "exit",
+      description: "Seal the session. Creates closing commit, returns root SHA, resets to uninitialized.",
+      inputSchema: %{
+        type: "object",
+        properties: %{
+          annotation: %{type: "string", description: "Signal kind for the closing commit."}
+        },
+        required: ["annotation"]
+      }
+    }
   end
 
   # ---------------------------------------------------------------------------
