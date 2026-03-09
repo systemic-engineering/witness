@@ -16,13 +16,43 @@ config_schema =
     ],
     app: [
       type: :atom,
-      required: true,
+      required: false,
       doc: "The OTP application of this Witness context."
     ],
     prefix: [
       type: {:list, :atom},
-      required: true,
+      required: false,
       doc: "A list of atoms that gets prefixed to every emitted event name."
+    ],
+    parent: [
+      type: {:or, [nil, :atom]},
+      required: false,
+      default: nil,
+      doc: "Explicit parent module. When nil, parent is discovered by walking up the module tree."
+    ],
+    repos: [
+      type: {:list, :atom},
+      required: false,
+      default: [],
+      doc: "A list of `Witness.Repo` modules for persistence."
+    ],
+    domain: [
+      type: {:or, [nil, :atom]},
+      required: false,
+      default: nil,
+      doc: "The domain this witnessed module belongs to."
+    ],
+    supervise: [
+      type: :boolean,
+      required: false,
+      default: false,
+      doc: "When true, starts a ModuleActor and dynamic supervision for children."
+    ],
+    snitch: [
+      type: :boolean,
+      required: false,
+      default: false,
+      doc: "When true, emits telemetry for every function call in the module."
     ],
     extra_events: [
       type: {:list, {:list, :atom}},
@@ -59,6 +89,8 @@ config_schema =
   |> NimbleOptions.new!()
 
 config_types = Enum.map(config_schema.schema, &NimbleOptions.option_typespec([&1]))
+
+Witness.Code.setup()
 
 defmodule Witness do
   @moduledoc """
@@ -128,10 +160,52 @@ defmodule Witness do
 
   alias __MODULE__.Source
 
+  @enforce_keys [:module, :prefix]
+  defstruct [
+    :module,
+    :prefix,
+    :parent,
+    :domain,
+    :span,
+    t0: 0,
+    repos: [],
+    supervise: false,
+    snitch: false,
+    events: [],
+    children: []
+  ]
+
   defmacro __using__(config) do
     if not Keyword.keyword?(config) do
       raise ArgumentError, "expected config to be a keyword list but got: #{Macro.to_string(config)}"
     end
+
+    caller_module = __CALLER__.module
+
+    # Parent walk: explicit parent or discovered from module tree
+    explicit_parent =
+      case config[:parent] do
+        nil -> nil
+        ast -> Macro.expand(ast, __CALLER__)
+      end
+
+    parent = explicit_parent || find_witness_parent(caller_module)
+
+    config =
+      if parent && Code.ensure_loaded?(parent) && function_exported?(parent, :__witness_compiled__, 0) do
+        parent_compiled = parent.__witness_compiled__()
+
+        config
+        |> Keyword.put(:parent, parent)
+        |> Keyword.put_new(:repos, parent_compiled.repos)
+        |> Keyword.put_new(:domain, parent_compiled.domain)
+        |> Keyword.put_new(:app, parent.config()[:app])
+        |> Keyword.put_new(:prefix, compute_child_prefix(parent_compiled.prefix, caller_module, parent_compiled.module))
+      else
+        config
+      end
+
+    t0 = System.monotonic_time()
 
     log_macros =
       for level <- Logger.levels() do
@@ -150,6 +224,13 @@ defmodule Witness do
 
     quote location: :keep do
       @behaviour unquote(__MODULE__)
+
+      Module.register_attribute(__MODULE__, :witness, accumulate: true)
+      @witness_t0 unquote(t0)
+      @on_definition Witness.Code
+      @before_compile Witness.Code
+      @after_compile Witness.Code
+      @after_verify Witness.Code
 
       @__witness_empty_map Macro.escape(%{})
 
@@ -194,6 +275,22 @@ defmodule Witness do
 
   @typedoc "A module which implements this behaviour."
   @type t :: module
+
+  @typedoc "A witness struct combining compile-time config, runtime state, and actor state."
+  @type witness :: %__MODULE__{
+          module: module,
+          prefix: [atom],
+          parent: module | nil,
+          domain: atom | nil,
+          span: Witness.Span.t() | nil,
+          t0: integer,
+          repos: [module],
+          supervise: boolean,
+          snitch: boolean,
+          events: list,
+          children: list
+        }
+
   @type config :: [unquote(NimbleOptions.option_typespec(config_schema))]
 
   @type event_name :: nonempty_list(atom)
@@ -351,4 +448,58 @@ defmodule Witness do
   @doc "Checks if the given module is a `#{inspect(__MODULE__)}.Source`."
   @spec source?(module) :: boolean
   defdelegate source?(module), to: Source
+
+  @doc """
+  Creates a live `%Witness{}` from a module's compiled witness data.
+
+  Sets `t0` to the current monotonic time and stores the witness
+  in the calling process's dictionary.
+  """
+  @spec start(module) :: witness
+  def start(module) do
+    compiled = module.__witness_compiled__()
+    witness = %__MODULE__{compiled | t0: System.monotonic_time()}
+    module.__witness__(witness)
+    witness
+  end
+
+  @doc false
+  def find_witness_parent(module) do
+    module
+    |> Module.split()
+    |> build_ancestors()
+    |> Enum.find(fn ancestor ->
+      Code.ensure_loaded?(ancestor) and function_exported?(ancestor, :__witness_compiled__, 0)
+    end)
+  end
+
+  defp build_ancestors(parts) when length(parts) <= 1, do: []
+
+  defp build_ancestors(parts) do
+    # Drop the last segment, then build progressively shorter ancestors
+    # e.g. ["A", "B", "C"] → [A.B, A]
+    parts
+    |> Enum.slice(0..-2//1)
+    |> then(fn parent_parts ->
+      ancestor = Module.concat(parent_parts)
+
+      [ancestor | build_ancestors(parent_parts)]
+    end)
+  end
+
+  @doc false
+  def compute_child_prefix(parent_prefix, child_module, parent_module) do
+    parent_parts = Module.split(parent_module)
+    child_parts = Module.split(child_module)
+    relative_parts = Enum.drop(child_parts, length(parent_parts))
+
+    relative_atoms =
+      Enum.map(relative_parts, fn part ->
+        part
+        |> Macro.underscore()
+        |> String.to_atom()
+      end)
+
+    parent_prefix ++ relative_atoms
+  end
 end
