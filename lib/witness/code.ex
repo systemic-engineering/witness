@@ -65,6 +65,7 @@ defmodule Witness.Code do
         %Witness{
           module: __MODULE__,
           prefix: config()[:prefix],
+          parent: config()[:parent],
           repos: config()[:repos] || [],
           domain: config()[:domain],
           supervise: config()[:supervise] || false,

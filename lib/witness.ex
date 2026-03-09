@@ -180,6 +180,31 @@ defmodule Witness do
       raise ArgumentError, "expected config to be a keyword list but got: #{Macro.to_string(config)}"
     end
 
+    caller_module = __CALLER__.module
+
+    # Parent walk: explicit parent or discovered from module tree
+    explicit_parent =
+      case config[:parent] do
+        nil -> nil
+        ast -> Macro.expand(ast, __CALLER__)
+      end
+
+    parent = explicit_parent || find_witness_parent(caller_module)
+
+    config =
+      if parent && Code.ensure_loaded?(parent) && function_exported?(parent, :__witness_compiled__, 0) do
+        parent_compiled = parent.__witness_compiled__()
+
+        config
+        |> Keyword.put(:parent, parent)
+        |> Keyword.put_new(:repos, parent_compiled.repos)
+        |> Keyword.put_new(:domain, parent_compiled.domain)
+        |> Keyword.put_new(:app, parent.config()[:app])
+        |> Keyword.put_new(:prefix, compute_child_prefix(parent_compiled.prefix, caller_module, parent_compiled.module))
+      else
+        config
+      end
+
     t0 = System.monotonic_time()
 
     log_macros =
@@ -423,4 +448,44 @@ defmodule Witness do
   @doc "Checks if the given module is a `#{inspect(__MODULE__)}.Source`."
   @spec source?(module) :: boolean
   defdelegate source?(module), to: Source
+
+  @doc false
+  def find_witness_parent(module) do
+    module
+    |> Module.split()
+    |> build_ancestors()
+    |> Enum.find(fn ancestor ->
+      Code.ensure_loaded?(ancestor) and function_exported?(ancestor, :__witness_compiled__, 0)
+    end)
+  end
+
+  defp build_ancestors(parts) when length(parts) <= 1, do: []
+
+  defp build_ancestors(parts) do
+    # Drop the last segment, then build progressively shorter ancestors
+    # e.g. ["A", "B", "C"] → [A.B, A]
+    parts
+    |> Enum.slice(0..-2//1)
+    |> then(fn parent_parts ->
+      ancestor = Module.concat(parent_parts)
+
+      [ancestor | build_ancestors(parent_parts)]
+    end)
+  end
+
+  @doc false
+  def compute_child_prefix(parent_prefix, child_module, parent_module) do
+    parent_parts = Module.split(parent_module)
+    child_parts = Module.split(child_module)
+    relative_parts = Enum.drop(child_parts, length(parent_parts))
+
+    relative_atoms =
+      Enum.map(relative_parts, fn part ->
+        part
+        |> Macro.underscore()
+        |> String.to_atom()
+      end)
+
+    parent_prefix ++ relative_atoms
+  end
 end
