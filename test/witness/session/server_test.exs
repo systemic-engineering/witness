@@ -2,7 +2,6 @@ defmodule Witness.Session.ServerTest do
   use ExUnit.Case, async: true
 
   alias Witness.Session
-  alias Witness.Session.Ref
 
   describe "start_link/1" do
     test "starts a session process" do
