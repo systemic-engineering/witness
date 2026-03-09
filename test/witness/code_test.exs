@@ -12,17 +12,13 @@ defmodule Witness.CodeTest do
     defp private_one, do: :hidden
   end
 
-  describe "__witness__/0 (legacy)" do
+  describe "__witness__/0 (runtime)" do
     test "is injected into the context module" do
       assert function_exported?(SampleContext, :__witness__, 0)
     end
 
-    test "returns a map with t0 and events" do
-      witness = SampleContext.__witness__()
-      assert is_map(witness)
-      assert is_integer(witness.t0)
-      assert is_list(witness.events)
-      assert length(witness.events) > 0
+    test "returns nil when no witness in process dict" do
+      assert SampleContext.__witness__() == nil
     end
   end
 

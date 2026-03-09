@@ -60,10 +60,7 @@ defmodule Witness.Code do
     )
 
     quote do
-      def __witness__ do
-        %{t0: @witness_t0, events: @witness}
-      end
-
+      @doc false
       def __witness_compiled__ do
         %Witness{
           module: __MODULE__,
@@ -75,6 +72,19 @@ defmodule Witness.Code do
           t0: @witness_t0,
           events: @witness
         }
+      end
+
+      @doc false
+      def __witness__, do: Process.get(:__witness__)
+
+      @doc false
+      def __witness__(pid) when is_pid(pid),
+        do: GenServer.call(pid, :__witness__)
+
+      @doc false
+      def __witness__(%Witness{} = witness) do
+        Process.put(:__witness__, witness)
+        :telemetry.execute([:witness, :state], %{}, %{witness: witness})
       end
     end
   end
