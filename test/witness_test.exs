@@ -148,34 +148,34 @@ defmodule WitnessTest do
     end
   end
 
-  describe "store config" do
-    test "accepts a valid :store config with {module, config} tuple" do
-      defmodule ContextWithStore do
+  describe "repo config" do
+    test "accepts a valid :repo config with a module" do
+      defmodule ContextWithRepo do
         use Witness,
           app: :witness,
-          prefix: [:test, :store],
-          store: {Witness.Store.Mnesia, []}
+          prefix: [:test, :repo],
+          repo: Witness.DefaultRepo
       end
 
-      config = ContextWithStore.config()
-      assert config[:store] == {Witness.Store.Mnesia, []}
+      config = ContextWithRepo.config()
+      assert config[:repo] == Witness.DefaultRepo
     end
 
-    test "accepts nil :store config" do
-      defmodule ContextWithNilStore do
+    test "accepts nil :repo config" do
+      defmodule ContextWithNilRepo do
         use Witness,
           app: :witness,
-          prefix: [:test, :nil_store],
-          store: nil
+          prefix: [:test, :nil_repo],
+          repo: nil
       end
 
-      config = ContextWithNilStore.config()
-      assert config[:store] == nil
+      config = ContextWithNilRepo.config()
+      assert config[:repo] == nil
     end
 
-    test "store defaults to nil when not configured" do
+    test "repo defaults to nil when not configured" do
       config = TestContext.config()
-      assert config[:store] == nil
+      assert config[:repo] == nil
     end
   end
 end
