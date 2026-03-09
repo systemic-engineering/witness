@@ -287,7 +287,7 @@ defmodule Witness do
           domain: atom | nil,
           span: Witness.Span.t() | nil,
           identity: Witness.Actor.Identity.t() | nil,
-          session: Witness.Session.t() | nil,
+          session: pid() | Witness.Session.t() | nil,
           head: String.t() | nil,
           t0: integer,
           repos: [module],
