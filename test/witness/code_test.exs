@@ -12,7 +12,7 @@ defmodule Witness.CodeTest do
     defp private_one, do: :hidden
   end
 
-  describe "__witness__/0" do
+  describe "__witness__/0 (legacy)" do
     test "is injected into the context module" do
       assert function_exported?(SampleContext, :__witness__, 0)
     end
@@ -23,6 +23,44 @@ defmodule Witness.CodeTest do
       assert is_integer(witness.t0)
       assert is_list(witness.events)
       assert length(witness.events) > 0
+    end
+  end
+
+  describe "__witness_compiled__/0" do
+    test "is injected into the context module" do
+      assert function_exported?(SampleContext, :__witness_compiled__, 0)
+    end
+
+    test "returns a %Witness{} struct" do
+      compiled = SampleContext.__witness_compiled__()
+      assert %Witness{} = compiled
+    end
+
+    test "has the correct module" do
+      compiled = SampleContext.__witness_compiled__()
+      assert compiled.module == SampleContext
+    end
+
+    test "has the configured prefix" do
+      compiled = SampleContext.__witness_compiled__()
+      assert compiled.prefix == [:code, :test]
+    end
+
+    test "has t0 as integer" do
+      compiled = SampleContext.__witness_compiled__()
+      assert is_integer(compiled.t0)
+    end
+
+    test "has accumulated events" do
+      compiled = SampleContext.__witness_compiled__()
+      assert is_list(compiled.events)
+      assert length(compiled.events) > 0
+    end
+
+    test "is backward compatible with map access" do
+      compiled = SampleContext.__witness_compiled__()
+      assert compiled.t0 == compiled[:t0]
+      assert compiled.events == compiled[:events]
     end
   end
 
