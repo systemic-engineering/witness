@@ -23,10 +23,24 @@ defmodule Witness.Cluster do
 
   require Logger
 
-  @doc "Compute the primary Erlang node name for a given app and hostname."
+  @doc "Compute the Erlang node name for a given app and hostname."
   @spec node_name(atom(), String.t()) :: node()
   def node_name(app, hostname) when is_atom(app) and is_binary(hostname) do
     :"#{app}@#{hostname}"
+  end
+
+  @doc """
+  Compute the primary node name, respecting the `WITNESS_NODE` override.
+
+  Set `WITNESS_NODE=production-glue@prod-host` to point `mix witness` at a
+  specific deployed node rather than deriving the name from the Mix app.
+  """
+  @spec primary_node_name(atom(), String.t()) :: node()
+  def primary_node_name(app, hostname) do
+    case System.get_env("WITNESS_NODE") do
+      nil -> node_name(app, hostname)
+      override -> String.to_atom(override)
+    end
   end
 
   @doc """
@@ -53,7 +67,7 @@ defmodule Witness.Cluster do
     else
       app = Mix.Project.config()[:app]
       hostname = local_hostname()
-      name = node_name(app, hostname)
+      name = primary_node_name(app, hostname)
 
       case :net_kernel.start([name, :shortnames]) do
         {:ok, _pid} ->

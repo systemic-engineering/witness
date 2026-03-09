@@ -14,7 +14,7 @@ defmodule Witness.ClusterTest do
   describe "primary_node_name/2" do
     test "returns node_name when WITNESS_NODE is not set" do
       System.delete_env("WITNESS_NODE")
-      assert Witness.Cluster.primary_node_name(:glue, "myhost") == :"glue@myhost"
+      assert Witness.Cluster.primary_node_name(:glue, "myhost") == :glue@myhost
     end
 
     test "returns the override atom when WITNESS_NODE is set" do
