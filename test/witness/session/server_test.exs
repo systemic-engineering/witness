@@ -190,6 +190,45 @@ defmodule Witness.Session.ServerTest do
     end
   end
 
+  describe "query/2" do
+    setup do
+      :mnesia.start()
+      start_supervised!(Witness.InMemory)
+
+      {:ok, pid} =
+        Session.start_link(
+          name: "test",
+          author: "reed@systemic.engineer",
+          repos: [Witness.InMemory]
+        )
+
+      :ok = Session.join(pid)
+      %{pid: pid}
+    end
+
+    test "returns event by SHA", %{pid: pid} do
+      obs = %{"ref" => "file:test.ex", "payload" => "observed"}
+      {:ok, result} = Session.bias(pid, "@signal", obs, nil, nil)
+      {:ok, event} = Session.query(pid, result.obs_sha)
+      assert event.sha == result.obs_sha
+    end
+
+    test "returns head event", %{pid: pid} do
+      obs = %{"ref" => "file:test.ex", "payload" => "observed"}
+      {:ok, _result} = Session.bias(pid, "@signal", obs, nil, nil)
+      {:ok, event} = Session.query(pid, :head)
+      assert is_binary(event.sha)
+    end
+
+    test "returns error for unknown SHA", %{pid: pid} do
+      {:error, _reason} = Session.query(pid, "0000000000000000000000000000000000000000000000000000000000000000")
+    end
+
+    test "returns error when no head", %{pid: pid} do
+      {:error, _reason} = Session.query(pid, :head)
+    end
+  end
+
   describe "sealed session (grace expiry)" do
     test "auto-seals on grace expiry" do
       {:ok, pid} =
