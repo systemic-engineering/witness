@@ -9,16 +9,37 @@ defmodule Witness.Cluster do
       glue@hostname     # when run from the glue project
       witness@hostname  # when run from the witness project
 
+  If the primary name is already taken (e.g. the deployed app is running),
+  a satellite node is started instead:
+
+      glue-/path/to/glue-<uuid>@hostname
+
+  The satellite connects to the primary, joining its observability field
+  rather than creating an isolated silo.
+
   Call `start/0` once at the beginning of `mix witness` to enable
   cross-repo clustering with zero configuration.
   """
 
   require Logger
 
-  @doc "Compute the Erlang node name for a given app and hostname."
+  @doc "Compute the primary Erlang node name for a given app and hostname."
   @spec node_name(atom(), String.t()) :: node()
   def node_name(app, hostname) when is_atom(app) and is_binary(hostname) do
     :"#{app}@#{hostname}"
+  end
+
+  @doc """
+  Compute a satellite node name: `app-pwd-uuid@hostname`.
+
+  Used when the primary node name is already taken, typically because the
+  deployed app is running. The satellite joins the primary's cluster instead
+  of competing for its identity.
+  """
+  @spec satellite_node_name(atom(), String.t(), String.t(), String.t()) :: node()
+  def satellite_node_name(app, pwd, uuid, hostname)
+      when is_atom(app) and is_binary(pwd) and is_binary(uuid) and is_binary(hostname) do
+    :"#{app}-#{pwd}-#{uuid}@#{hostname}"
   end
 
   @doc """
@@ -43,10 +64,31 @@ defmodule Witness.Cluster do
         {:error, {:already_started, _pid}} ->
           :ok
 
-        {:error, reason} ->
-          Logger.warning("Could not start distribution: #{inspect(reason)}")
-          {:error, reason}
+        {:error, _} ->
+          # Primary name taken — likely the deployed app. Start as satellite.
+          start_satellite(app, hostname, name)
       end
+    end
+  end
+
+  defp start_satellite(app, hostname, primary) do
+    pwd = System.get_env("PWD") || File.cwd!()
+    uuid = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+    satellite = satellite_node_name(app, pwd, uuid, hostname)
+
+    case :net_kernel.start([satellite, :shortnames]) do
+      {:ok, _pid} ->
+        Logger.info("Started satellite node: #{satellite} → #{primary}")
+        Node.connect(primary)
+        connect_local_peers(hostname)
+        :ok
+
+      {:error, {:already_started, _pid}} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Could not start distribution: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
