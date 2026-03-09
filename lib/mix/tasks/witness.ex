@@ -32,6 +32,9 @@ defmodule Mix.Tasks.Witness do
     # Redirect logger to stderr so stdout stays clean for JSON-RPC
     Logger.configure_backend(:console, device: :standard_error)
 
+    # Start a named node (repo name @ hostname) and connect to local peers.
+    Witness.Cluster.start()
+
     Mix.Task.run("app.start")
 
     # Gleam BEAM packages must go on the code path AFTER app.start,
