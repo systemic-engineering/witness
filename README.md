@@ -314,4 +314,4 @@ O11y.track_event([:created], %{user_id: id})
 
 ## License
 
-This project is licensed under the [Hippocratic License 3.0](LICENSE) - an ethical open source license.
+Licensed under the [Apache License, Version 2.0](LICENSE). Releases 0.1.0 to 0.3.0 remain under the licenses they were published with.
