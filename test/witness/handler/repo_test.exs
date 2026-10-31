@@ -49,6 +49,33 @@ defmodule Witness.Handler.RepoTest do
       assert decoded["meta"]["source"] == "test"
     end
 
+    test "terms JSON can't hold are kept as text, with a note, never dropped" do
+      pid = self()
+
+      RepoHandler.handle_event(
+        [:odd, :meta],
+        %{n: 1},
+        %{caller: {Some.Module, {:fun, 3}}, pid: pid, ref: make_ref(), fun: fn -> :ok end, plain: "text"},
+        {TestRepo, TestContext}
+      )
+
+      {:atomic, records} =
+        :mnesia.transaction(fn -> :mnesia.match_object({:witness, :_, :_, :_, :_}) end)
+
+      {_, _, data, _, _} =
+        Enum.find(records, fn {_, _, _, msg, _} -> msg == "handler/repo/test/odd/meta" end)
+
+      decoded = JSON.decode!(data)
+      assert decoded["meta"]["caller"] == inspect({Some.Module, {:fun, 3}})
+      assert decoded["meta"]["pid"] == inspect(pid)
+      assert decoded["meta"]["plain"] == "text"
+      assert is_binary(decoded["meta"]["ref"])
+      assert is_binary(decoded["meta"]["fun"])
+
+      notes = decoded["notes"]
+      assert Enum.sort(notes) == Enum.sort(["meta.caller", "meta.fun", "meta.pid", "meta.ref"])
+    end
+
     test "message carries the witness namespace path" do
       RepoHandler.handle_event(
         [:actor, :witnessed],

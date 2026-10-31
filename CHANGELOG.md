@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Licensed under Apache-2.0 (previously SEL-1.0). Releases 0.1.0 to 0.3.0
+  remain under the licenses they were published with (SEL-1.0; 0.1.0 shipped
+  with the Hippocratic License 3.0).
+
 ## [0.3.0] - 2026-02-25
 
 ### Added

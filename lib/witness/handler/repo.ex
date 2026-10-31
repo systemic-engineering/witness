@@ -23,13 +23,19 @@ defmodule Witness.Handler.Repo do
 
   @impl Witness.Handler
   def handle_event(event_name, attributes, meta, {repo, context}) do
-    data =
-      JSON.encode!(%{
-        event_name: event_name,
-        attributes: attributes,
-        meta: meta,
-        timestamp: System.system_time(:microsecond)
-      })
+    {attributes, attribute_notes} = json_safe(attributes, "attributes")
+    {meta, meta_notes} = json_safe(meta, "meta")
+
+    record =
+      %{event_name: event_name, attributes: attributes, meta: meta, timestamp: System.system_time(:microsecond)}
+      |> then(fn r ->
+        case attribute_notes ++ meta_notes do
+          [] -> r
+          notes -> Map.put(r, :notes, notes)
+        end
+      end)
+
+    data = JSON.encode!(record)
 
     message = build_message(context, event_name)
 
@@ -38,6 +44,33 @@ defmodule Witness.Handler.Repo do
 
     :ok
   end
+
+  # Terms JSON can't hold (tuples such as the caller, pids, refs, functions,
+  # ports) are kept as their inspected text, and their paths are listed under
+  # `notes`, so nothing is dropped and nothing changes silently.
+  defp json_safe(map, path) when is_map(map) and not is_struct(map) do
+    Enum.reduce(map, {%{}, []}, fn {k, v}, {acc, notes} ->
+      {v, more} = json_safe(v, "#{path}.#{k}")
+      {Map.put(acc, k, v), notes ++ more}
+    end)
+  end
+
+  defp json_safe(list, path) when is_list(list) do
+    if List.improper?(list) do
+      {inspect(list), [path]}
+    else
+      {values, notes} =
+        list |> Enum.with_index() |> Enum.map(fn {v, i} -> json_safe(v, "#{path}.#{i}") end) |> Enum.unzip()
+
+      {values, List.flatten(notes)}
+    end
+  end
+
+  defp json_safe(value, _path)
+       when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value) or is_atom(value),
+       do: {value, []}
+
+  defp json_safe(value, path), do: {inspect(value), [path]}
 
   defp build_message(context, event_name) do
     prefix = context_prefix(context)

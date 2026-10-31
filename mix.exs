@@ -84,7 +84,7 @@ defmodule Witness.MixProject do
 
   defp package do
     [
-      licenses: ["SEL-1.0"],
+      licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url
       },
